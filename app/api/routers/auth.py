@@ -16,7 +16,6 @@ from app.deps import (
     UnitOfWorkRepo,
     EmailServiceDep,
     OtpServiceDep,
-    CachedCurrentUser
 )
 from app.api.schemas.auth import (
     SignUpResponse,
@@ -26,6 +25,7 @@ from app.api.schemas.auth import (
     ResendOtp,
     OtpResendResponse,
     LogoutResponse,
+    UserSignUp
 )
 
 router = APIRouter()
@@ -43,13 +43,13 @@ router = APIRouter()
 async def sign_up_with_email(
     request: Request,
     security: SecurityDep,
-    email_login: EmailLogin,
+    sign_up_payload: UserSignUp,
     auth_service: AuthServiceDep,
     user_service: UserServiceDep,
     email_service: EmailServiceDep,
 ):
     await auth_service.sign_up_with_email(
-        email_login, user_service, email_service, security
+        sign_up_payload, user_service, email_service, security
     )
     return SuccessResponse(
         message=(

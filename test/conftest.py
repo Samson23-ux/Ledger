@@ -135,6 +135,8 @@ async def create_user(async_client: AsyncClient):
     path: str = "app.api.services.auth.send_verification_email.apply_async"
 
     sign_up_payload: dict = {
+        "first_name": "test",
+        "last_name": "user",
         "email": "user@example.com",
         "password": "test_user_password",
     }

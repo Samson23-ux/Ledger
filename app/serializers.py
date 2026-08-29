@@ -8,6 +8,8 @@ def _serialize_user(user: User) -> dict:
     return {
         "id": str(user.id),
         "type": user.type.value,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
         "email": user.email or "",
         "hashed_password": user.hashed_password or "",
         "google_id": user.google_id or "",
@@ -22,6 +24,8 @@ def _deserialize_cached_user(cached: dict) -> User:
     return User(
         id=cached["id"],
         type=cached["type"],
+        first_name=cached["first_name"],
+        last_name=cached["last_name"],
         email=cached["email"] or None,
         hashed_password=cached["hashed_password"] or None,
         google_id=cached["google_id"] or None,

@@ -71,7 +71,6 @@ class UserService:
         user_email: str = (
             filters.get("email")
             or filters.get("google_email")
-            or filters.get("github_email")
         )
         cache_key: str = self._user_cache_key(user_email)
 

@@ -12,8 +12,10 @@ from app.core.security import Security
 
 def get_security_mock():
     payload: dict = {
-        "sub": "randomfakeid",
+        "given_name": "test",
+        "family_name": "user",
         "email": "user@example.com",
+        "password": "test_user_password",
     }
 
     refresh_token_payload: dict = {
@@ -56,6 +58,8 @@ class TestSignUpWithEmail:
         self, async_client: httpx.AsyncClient, verify_user: httpx.Response
     ):
         sign_up_payload: dict = {
+            "first_name": "test",
+            "last_name": "user",
             "email": "user@example.com",
             "password": "test_user_password",
         }

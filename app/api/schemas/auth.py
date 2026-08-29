@@ -34,6 +34,11 @@ class EmailLogin(AuthBase):
     password: str = Field(..., min_length=8)
 
 
+class UserSignUp(EmailLogin):
+    first_name: str
+    last_name: str
+
+
 class OtpInDB(AuthBase):
     otp: str
     user_id: UUID

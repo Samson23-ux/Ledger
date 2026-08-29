@@ -30,6 +30,8 @@ class User(Base):
     type: Mapped[UserType] = mapped_column(
         Enum(UserType, values_callable=lambda e: [m.value for m in e])
     )
+    first_name: Mapped[str] = mapped_column(String)
+    last_name: Mapped[str] = mapped_column(String)
     email: Mapped[str | None] = mapped_column(String, unique=True)
     hashed_password: Mapped[str | None] = mapped_column(String)
     google_id: Mapped[str | None] = mapped_column(String)

@@ -8,6 +8,8 @@ from app.api.models.user import UserType
 
 class UserBase(BaseModel):
     type: UserType
+    first_name: str
+    last_name: str
     is_active: bool = False
     is_verified: bool = False
 

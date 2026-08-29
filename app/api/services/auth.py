@@ -26,6 +26,7 @@ from app.api.schemas.auth import (
     TokenData,
     EmailVerify,
     ResendOtp,
+    UserSignUp,
 )
 from app.core.exceptions import (
     UserExistsError,
@@ -109,14 +110,17 @@ class AuthService:
 
     async def sign_up_with_email(
         self,
-        email_login: EmailLogin,
+        sign_up_payload: UserSignUp,
         user_service: UserService,
         email_service: EmailService,
         security: Security,
     ):
         email_id: UUID = uuid7()
-        user_email: str = email_login.email
-        hashed_password: str = await security.hash_password(email_login.password)
+
+        user_email: str = sign_up_payload.email
+        last_name: str = sign_up_payload.last_name
+        first_name: str = sign_up_payload.first_name
+        hashed_password: str = await security.hash_password(sign_up_payload.password)
 
         existing_user: User | None = await user_service._get_user_by_email(
             email=user_email
@@ -124,7 +128,10 @@ class AuthService:
 
         if existing_user:
             if not existing_user.is_verified:
+                existing_user.last_name = last_name
+                existing_user.first_name = first_name
                 existing_user.hashed_password = hashed_password
+
                 await user_service.update_user(existing_user)
 
                 email_db: EmailInDB = EmailInDB(
@@ -145,7 +152,11 @@ class AuthService:
                 raise UserExistsError(user_email=user_email)
         else:
             user = UserInDB(
-                email=user_email, hashed_password=hashed_password, type="email"
+                email=user_email,
+                first_name=first_name,
+                last_name=last_name,
+                hashed_password=hashed_password,
+                type="email",
             )
             user: User = await user_service.create_user(user, user_email)
 
@@ -173,6 +184,8 @@ class AuthService:
 
         google_id: str = user_info.get("sub")
         user_email: str = user_info.get("email")
+        first_name: str = user_info.get("given_name")
+        last_name: str = user_info.get("family_name")
 
         existing_user: User | None = await user_service._get_user_by_email(
             google_email=user_email,
@@ -187,6 +200,8 @@ class AuthService:
                 type="google",
                 is_active=True,
                 is_verified=True,
+                first_name=first_name,
+                last_name=last_name,
                 google_id=google_id,
                 google_email=user_email,
             )
