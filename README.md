@@ -1,0 +1,1 @@
+FastAPI Template created with cookiecutter
