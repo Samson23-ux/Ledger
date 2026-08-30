@@ -46,5 +46,5 @@ class Wallet(Base):
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name="wallets_pk"),
-        Index("idx_wallets_user_id", id, user_id, unique=True),
+        Index("idx_wallets_user_id", user_id, unique=True),
     )

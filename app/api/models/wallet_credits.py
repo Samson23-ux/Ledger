@@ -42,4 +42,5 @@ class WalletCredit(Base):
             payment_transaction_id,
             unique=True,
         ),
+        Index("idx_wallet_credits_created_at", created_at)
     )

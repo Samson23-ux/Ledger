@@ -85,4 +85,7 @@ class PaymentTransaction(Base):
             paystack_reference,
             unique=True,
         ),
+        Index("idx_payment_transactions_status_id", status, id, unique=True),
+        Index("idx_payment_transactions_created_at", created_at),
+        Index("idx_payment_transactions_updated_at", updated_at)
     )

@@ -25,6 +25,7 @@ dependencies = [
     "resend",
     "sentry-sdk",
     "sqlalchemy",
+    "paystackease>=2.3.7",
 ]
 
 [tool.pytest.ini_options]
