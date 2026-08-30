@@ -1,0 +1,88 @@
+import enum
+import uuid
+from datetime import datetime, timezone
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import BIGINT
+from sqlalchemy import (
+    text,
+    UUID,
+    DateTime,
+    Index,
+    ForeignKey,
+    Text,
+    Enum,
+    Boolean,
+    PrimaryKeyConstraint,
+)
+
+
+from app.api.models.base import Base
+from app.api.models.wallets import CurrencyEnum
+from app.api.models.state import TransactionStatus
+
+
+class ChannelEnum(str, enum.Enum):
+    CARD = "card"
+    BANK_TRANSFER = "bank_transfer"
+
+
+class PaymentTransaction(Base):
+    __tablename__ = "payment_transactions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, server_default=text("uuid_generate_v7()")
+    )
+    idempotency_key: Mapped[str] = mapped_column(Text, unique=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey(
+            "users.id", ondelete="CASCADE", name="payment_transactionss_user_id_fk"
+        ),
+        unique=True,
+    )
+    wallet_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey(
+            "wallets.id", ondelete="CASCADE", name="payment_transactions_wallet_id_fk"
+        ),
+    )
+    paystack_reference: Mapped[str | None] = mapped_column(Text, unique=True)
+    amount: Mapped[int] = mapped_column(BIGINT)
+    currency: Mapped[enum.Enum] = mapped_column(
+        Enum(CurrencyEnum, values_callable=lambda e: [m.value for m in e]),
+        default=CurrencyEnum.NGN,
+    )
+    channel: Mapped[enum.Enum] = mapped_column(
+        Enum(ChannelEnum, values_callable=lambda e: [m.value for m in e]),
+    )
+    status: Mapped[enum.Enum] = mapped_column(
+        Enum(TransactionStatus, values_callable=lambda e: [m.value for m in e]),
+        default=TransactionStatus.PENDING,
+    )
+    gateway_response: Mapped[str | None] = mapped_column(Text)
+    authorization_code: Mapped[str | None] = mapped_column(Text)  # card-only channel
+    bank_transfer_account_number: Mapped[str | None] = mapped_column(
+        Text
+    )  # transfer-only channel
+    bank_transfer_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )  # transfer-only channel
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    wallet_credited: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="payment_transactions_pk"),
+        Index("idx_payment_transactions_user_id", user_id),
+        Index("idx_payment_transactions_wallet_id", wallet_id),
+        Index(
+            "idx_payment_transactions_paystack_reference",
+            paystack_reference,
+            unique=True,
+        ),
+    )
