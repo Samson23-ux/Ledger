@@ -21,6 +21,14 @@ class ServiceUnavailable(AppException):
     pass
 
 
+class ReferenceNotFound(AppException):
+    """Transaction not found with reference.
+    Raised for the transaction verify endpoint
+    """
+
+    pass
+
+
 class MaxRetriesError(AppException):
     """Maximum retries exceeded"""
 
