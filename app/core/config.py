@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     # rate limit keys
     AUTH_LIMIT_KEY: str = "limiter:auth"
 
+    # paystack
+    PAYSTACK_API_KEY: str
+    PAYSTACK_RETRY_REFUND_URL: str = "https://api.paystack.co/refund/retry_with_customer_details"
+
 
 @lru_cache(maxsize=1)
 def get_settings():
