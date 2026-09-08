@@ -18,7 +18,8 @@ class ServerError(AppException):
 class ServiceUnavailable(AppException):
     """Service unavailable temporarily"""
 
-    pass
+    def __init__(self, retry_after):
+        self.retry_after = retry_after
 
 
 class ReferenceNotFound(AppException):
@@ -77,9 +78,14 @@ def create_exception_handler(
     status_code: int, initial_detail: dict
 ) -> Callable[[Request, AppException], Awaitable[JSONResponse]]:
     async def exception_handler(request: Request, exc: AppException):
+        headers = None
         message: str = initial_detail.get("message")
         initial_detail["message"] = message.format(**exc.__dict__)
 
-        return JSONResponse(content=initial_detail, status_code=status_code)
+        if isinstance(exc, ServiceUnavailable):
+            retry_after = exc.retry_after
+            headers = {"x-retry-after": retry_after}
+
+        return JSONResponse(content=initial_detail, status_code=status_code, headers=headers)
 
     return exception_handler

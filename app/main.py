@@ -8,6 +8,7 @@ from app.core.security import Security
 from app.core.config import get_settings
 from app.database.session import redis_client
 from app.core.exception_handlers import ExceptionHandler
+from app.api.services.circuit_breaker import CircuitBreaker
 
 SECURITY = Security()
 SETTINGS = get_settings()
@@ -27,6 +28,9 @@ async def lifespan(app: FastAPI):
     await SECURITY.register_oauth()
     app.state.limiters = {}
     app.state.redis = redis_client
+
+    breaker = CircuitBreaker()
+    await breaker.initialize()
 
     yield
 
