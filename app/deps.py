@@ -31,9 +31,11 @@ from app.core.exceptions import AuthenticationError
 from app.api.repo.transactions import TransactionRepository
 from app.api.services.circuit_breaker import CircuitBreaker
 from app.api.services.transactions import TransactionService
+from app.api.repo.webhook_events import WebhookEventRepository
 from app.api.repo.wallet_credits import WalletCreditRepository
 from app.api.services.wallet_credits import WalletCreditService
 from app.api.repo.authorization_codes import AuthCodeRepository
+from app.api.services.webhook_events import WebhookEventService
 from app.api.services.authorization_codes import AuthCodeService
 from app.api.services.payment_gateway import Transaction, Refund
 
@@ -106,6 +108,10 @@ async def get_transaction_repo(session: DBSession) -> TransactionRepository:
     return TransactionRepository(async_session=session)
 
 
+async def get_webhook_repo(session: DBSession) -> WebhookEventRepository:
+    return WebhookEventRepository(async_session=session)
+
+
 OtpRepo = Annotated[OtpRepository, Depends(get_otp_repo)]
 UserRepo = Annotated[UserRepository, Depends(get_user_repo)]
 RedisRepo = Annotated[RedisRepository, Depends(get_redis_repo)]
@@ -115,6 +121,7 @@ OutBoxRepo = Annotated[OutBoxRepository, Depends(get_out_box_repo)]
 AuthCodeRepo = Annotated[AuthCodeRepository, Depends(get_auth_code_repo)]
 UnitOfWorkRepo = Annotated[UnitOfWorkRepository, Depends(get_unit_of_work)]
 WalletCreditRepo = Annotated[WalletCreditRepository, Depends(get_credit_repo)]
+WebhookEventRepo = Annotated[WebhookEventRepository, Depends(get_webhook_repo)]
 TransactionRepo = Annotated[TransactionRepository, Depends(get_transaction_repo)]
 
 #  -------------------- Service dependency ---------------------------- #
@@ -179,6 +186,10 @@ async def get_transaction_service(transaction_repo: TransactionRepo) -> Transact
     return TransactionService(transaction_repo=transaction_repo)
 
 
+async def get_webhook_service(webhook_repo: WebhookEventRepo) -> WebhookEventService:
+    return WebhookEventService(webhook_repo=webhook_repo)
+
+
 RefundDep = Annotated[Refund, Depends(get_refund)]
 OtpServiceDep = Annotated[OtpService, Depends(get_otp_service)]
 TransactionDep = Annotated[Transaction, Depends(get_transaction)]
@@ -190,6 +201,7 @@ OutBoxServiceDep = Annotated[OutBoxService, Depends(get_out_box_service)]
 CircuitBreakerDep = Annotated[CircuitBreaker, Depends(get_circuit_breaker)]
 AuthCodeServiceDep = Annotated[AuthCodeService, Depends(get_auth_code_service)]
 WalletCreditServiceDep = Annotated[WalletCreditService, Depends(get_credit_service)]
+WebhookEventServiceDep = Annotated[WebhookEventService, Depends(get_webhook_service)]
 TransactionServiceDep = Annotated[TransactionService, Depends(get_transaction_service)]
 
 # ------------------------ Auth dependency ---------------------------- #

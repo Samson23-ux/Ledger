@@ -9,7 +9,6 @@ from sqlalchemy import (
     Index,
     Text,
     Boolean,
-    ForeignKey,
     PrimaryKeyConstraint,
 )
 
@@ -23,9 +22,8 @@ class WebhookEvent(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID, server_default=text("uuid_generate_v7()")
     )
-    paystack_event_id: Mapped[str | None] = mapped_column(
-        Text, unique=True, default=None
-    )
+    paystack_data_id: Mapped[str] = mapped_column(Text, unique=True)
+    paystack_reference: Mapped[str] = mapped_column(Text, unique=True)
     event_type: Mapped[str] = mapped_column(Text)
     payload: Mapped[dict] = mapped_column(JSONB)
     signature_verified: Mapped[bool] = mapped_column(Boolean)
@@ -39,5 +37,11 @@ class WebhookEvent(Base):
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name="webhook_events_pk"),
-        Index("idx_webhook_events_paystack_event_id", paystack_event_id),
+        Index(
+            "idx_webhook_events_dedup_comp",
+            paystack_data_id,
+            paystack_reference,
+            event_type,
+            unique=True,
+        ),
     )

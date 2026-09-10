@@ -49,5 +49,5 @@ class AuthorizationCode(Base):
 
     __table_args__ = (
         PrimaryKeyConstraint(id, name="auth_codes_pk"),
-        Index("idx_auth_codes_wallet_id", wallet_id, unique=True)
+        Index("idx_auth_codes_wallet_id", wallet_id, code, unique=True)
     )

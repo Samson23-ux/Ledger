@@ -1,5 +1,6 @@
 import json
 import base64
+import hashlib
 from uuid import uuid4
 from typing import Optional
 from jose import jwt, JWTError
@@ -45,7 +46,7 @@ class Security:
             if cursor_payload["order"] != curr_order.lower():
                 return
             return cursor_payload
-        except (json.JSONDecodeError, UnicodeDecodeError, binascii_error):
+        except json.JSONDecodeError, UnicodeDecodeError, binascii_error:
             return
 
     async def hash_password(self, password: str) -> str:
@@ -55,6 +56,14 @@ class Security:
     async def verify_password(self, password: str, hash_password: str) -> bool:
         password: str = password + self.SETTINGS.ARGON2_PASSWORD_PEPPER
         return self.arg2_hasher.verify(password, hash_password)
+
+    async def verify_webhook_signature(
+        self, received_signature: str, payload: dict
+    ) -> bool:
+        derived_signature: str = hashlib.sha512(
+            json.dumps(payload).encode()
+        ).hexdigest()
+        return received_signature == derived_signature
 
     async def create_access_token(
         self, token_data: TokenData, expire_time: Optional[int] = None
