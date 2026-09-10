@@ -1,8 +1,8 @@
 import enum
 import uuid
+from decimal import Decimal
 from datetime import datetime, timezone
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.dialects.postgresql import BIGINT
 from sqlalchemy import (
     text,
     UUID,
@@ -12,6 +12,7 @@ from sqlalchemy import (
     Text,
     Enum,
     Boolean,
+    Numeric,
     PrimaryKeyConstraint,
 )
 
@@ -35,8 +36,8 @@ class Refund(Base):
             name="wallet_credits_payment_transaction_id_fk",
         ),
     )
-    paystack_refund_id: Mapped[str | None] = mapped_column(Text, unique=True)
-    amount: Mapped[int] = mapped_column(BIGINT)
+    paystack_refund_id: Mapped[str | None] = mapped_column(Text, unique=True, default=None)
+    amount: Mapped[Decimal] = mapped_column(Numeric(precision=10, scale=2))
     currency: Mapped[enum.Enum] = mapped_column(
         Enum(CurrencyEnum, values_callable=lambda e: [m.value for m in e]),
         default=CurrencyEnum.NGN,
@@ -45,15 +46,15 @@ class Refund(Base):
         Enum(RefundStatus, values_callable=lambda e: [m.value for m in e]),
         default=RefundStatus.PENDING,
     )
-    customer_note: Mapped[str | None] = mapped_column(Text)
-    merchant_note: Mapped[str | None] = mapped_column(Text)
-    refunded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    customer_note: Mapped[str | None] = mapped_column(Text, default=None)
+    merchant_note: Mapped[str | None] = mapped_column(Text, default=None)
+    refunded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     wallet_debited: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
     )
 
     __table_args__ = (

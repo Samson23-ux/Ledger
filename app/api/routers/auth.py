@@ -81,13 +81,13 @@ async def google_callback(
     request: Request,
     response: Response,
     security: SecurityDep,
+    uow: UnitOfWorkRepo,
     auth_service: AuthServiceDep,
-    user_service: UserServiceDep,
 ):
     await security.register_oauth()
     payload: dict = await security.oauth.google.authorize_access_token(request)
     access_token, refresh_token = await auth_service.sign_up_with_google(
-        payload, user_service, security
+        payload, uow, security
     )
 
     expire_time: int = get_settings().REFRESH_TOKEN_EXPIRE_TIME * 24 * 3600

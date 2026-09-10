@@ -17,10 +17,25 @@ from app.api.repo.user import UserRepository
 from app.api.services.auth import AuthService
 from app.api.services.user import UserService
 from app.api.repo.email import EmailRepository
+
+
 from app.api.repo.redis import RedisRepository
 from app.api.services.email import EmailService
+from app.api.repo.outbox import OutBoxRepository
+from app.api.services.outbox import OutBoxService
 from app.api.repo.uow import UnitOfWorkRepository
+from app.api.repo.wallets import WalletRepository
+from app.api.services.wallets import WalletService
+from app.api.services.thread_pool import ThreadPool
 from app.core.exceptions import AuthenticationError
+from app.api.repo.transactions import TransactionRepository
+from app.api.services.circuit_breaker import CircuitBreaker
+from app.api.services.transactions import TransactionService
+from app.api.repo.wallet_credits import WalletCreditRepository
+from app.api.services.wallet_credits import WalletCreditService
+from app.api.repo.authorization_codes import AuthCodeRepository
+from app.api.services.authorization_codes import AuthCodeService
+from app.api.services.payment_gateway import Transaction, Refund
 
 SETTINGS = get_settings()
 
@@ -68,14 +83,39 @@ async def get_email_repo(session: DBSession) -> EmailRepository:
 
 
 async def get_unit_of_work(session: DBSession) -> UnitOfWorkRepository:
-    return UnitOfWorkRepository(session=session)
+    return UnitOfWorkRepository(async_session=session)
+
+
+async def get_wallet_repo(session: DBSession) -> WalletRepository:
+    return WalletRepository(async_session=session)
+
+
+async def get_auth_code_repo(session: DBSession) -> AuthCodeRepository:
+    return AuthCodeRepository(async_session=session)
+
+
+async def get_out_box_repo(session: DBSession) -> OutBoxRepository:
+    return OutBoxRepository(async_session=session)
+
+
+async def get_credit_repo(session: DBSession) -> WalletCreditRepository:
+    return WalletCreditRepository(async_session=session)
+
+
+async def get_transaction_repo(session: DBSession) -> TransactionRepository:
+    return TransactionRepository(async_session=session)
 
 
 OtpRepo = Annotated[OtpRepository, Depends(get_otp_repo)]
 UserRepo = Annotated[UserRepository, Depends(get_user_repo)]
 RedisRepo = Annotated[RedisRepository, Depends(get_redis_repo)]
 EmailRepo = Annotated[EmailRepository, Depends(get_email_repo)]
+WalletRepo = Annotated[WalletRepository, Depends(get_wallet_repo)]
+OutBoxRepo = Annotated[OutBoxRepository, Depends(get_out_box_repo)]
+AuthCodeRepo = Annotated[AuthCodeRepository, Depends(get_auth_code_repo)]
 UnitOfWorkRepo = Annotated[UnitOfWorkRepository, Depends(get_unit_of_work)]
+WalletCreditRepo = Annotated[WalletCreditRepository, Depends(get_credit_repo)]
+TransactionRepo = Annotated[TransactionRepository, Depends(get_transaction_repo)]
 
 #  -------------------- Service dependency ---------------------------- #
 
@@ -88,18 +128,69 @@ async def get_email_service(email_repo: EmailRepo) -> EmailService:
     return EmailService(email_repo=email_repo)
 
 
-async def get_auth_service(redis_repo: RedisRepo) -> AuthService:
-    return AuthService(redis_repo=redis_repo)
+async def get_thread_pool() -> ThreadPool:
+    return ThreadPool()
+
+
+ThreadPoolDep = Annotated[ThreadPool, Depends(get_thread_pool)]
+
+
+async def get_auth_service(redis_repo: RedisRepo, pool: ThreadPoolDep) -> AuthService:
+    return AuthService(redis_repo=redis_repo, pool=pool)
 
 
 async def get_otp_service(otp_repo: OtpRepo) -> OtpService:
     return OtpService(otp_repo=otp_repo)
 
 
+async def get_circuit_breaker(redis_repo: RedisRepo) -> CircuitBreaker:
+    return CircuitBreaker(redis=redis_repo)
+
+
+async def get_wallet_service(
+    pool: ThreadPoolDep, redis_repo: RedisRepo, wallet_repo: WalletRepo
+) -> WalletService:
+    return WalletService(pool=pool, wallet_repo=wallet_repo, redis_repo=redis_repo)
+
+
+async def get_refund(request: Request) -> Refund:
+    return Refund(api_key=SETTINGS.PAYSTACK_API_KEY, client=request.app.state.client)
+
+
+async def get_transaction(request: Request) -> Transaction:
+    return Transaction(
+        api_key=SETTINGS.PAYSTACK_API_KEY, client=request.app.state.client
+    )
+
+
+async def get_auth_code_service(code_repo: AuthCodeRepo) -> AuthCodeService:
+    return AuthCodeService(code_repo=code_repo)
+
+
+async def get_out_box_service(out_box_repo: OutBoxRepo) -> OutBoxService:
+    return OutBoxService(out_box_repo=out_box_repo)
+
+
+async def get_credit_service(credit_repo: WalletCreditRepo) -> WalletCreditService:
+    return WalletCreditService(credit_repo=credit_repo)
+
+
+async def get_transaction_service(transaction_repo: TransactionRepo) -> TransactionService:
+    return TransactionService(transaction_repo=transaction_repo)
+
+
+RefundDep = Annotated[Refund, Depends(get_refund)]
 OtpServiceDep = Annotated[OtpService, Depends(get_otp_service)]
+TransactionDep = Annotated[Transaction, Depends(get_transaction)]
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]
 EmailServiceDep = Annotated[EmailService, Depends(get_email_service)]
+WalletServiceDep = Annotated[WalletService, Depends(get_wallet_service)]
+OutBoxServiceDep = Annotated[OutBoxService, Depends(get_out_box_service)]
+CircuitBreakerDep = Annotated[CircuitBreaker, Depends(get_circuit_breaker)]
+AuthCodeServiceDep = Annotated[AuthCodeService, Depends(get_auth_code_service)]
+WalletCreditServiceDep = Annotated[WalletCreditService, Depends(get_credit_service)]
+TransactionServiceDep = Annotated[TransactionService, Depends(get_transaction_service)]
 
 # ------------------------ Auth dependency ---------------------------- #
 
@@ -189,6 +280,18 @@ CurrentActiveCachedUser = Annotated[User, Depends(get_current_active_cached_user
 
 # ------------------------ Limiter -------------------------------- #
 auth_limiter = Depends(
+    _limiter_handler(
+        key=SETTINGS.AUTH_LIMIT_KEY, limit=10, unit="minutes", multiplier=15
+    )
+)
+
+get_default = Depends(
+    _limiter_handler(
+        key=SETTINGS.AUTH_LIMIT_KEY, limit=10, unit="minutes", multiplier=1
+    )
+)
+
+fund_wallet_limiter = Depends(
     _limiter_handler(
         key=SETTINGS.AUTH_LIMIT_KEY, limit=10, unit="minutes", multiplier=15
     )

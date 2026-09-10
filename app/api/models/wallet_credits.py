@@ -1,8 +1,16 @@
 import uuid
+from decimal import Decimal
 from datetime import datetime, timezone
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.dialects.postgresql import BIGINT
-from sqlalchemy import text, UUID, DateTime, Index, ForeignKey, PrimaryKeyConstraint
+from sqlalchemy import (
+    text,
+    UUID,
+    DateTime,
+    Index,
+    ForeignKey,
+    PrimaryKeyConstraint,
+    Numeric,
+)
 
 
 from app.api.models.base import Base
@@ -29,18 +37,18 @@ class WalletCredit(Base):
         ),
         unique=True,
     )
-    amount: Mapped[int] = mapped_column(BIGINT)
+    amount: Mapped[Decimal] = mapped_column(Numeric(precision=10, scale=2))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name="wallet_credits_pk"),
-        Index("idx_wallet_credits_wallet_id", wallet_id),
+        Index("idx_wallet_credits_wallet_id", wallet_id, id),
         Index(
             "idx_wallet_credits_payment_transaction_id",
             payment_transaction_id,
             unique=True,
         ),
-        Index("idx_wallet_credits_created_at", created_at)
+        Index("idx_wallet_credits_created_at", created_at),
     )

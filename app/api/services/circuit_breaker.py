@@ -113,8 +113,9 @@ class CircuitBreaker:
 
         return {"is_healthy": True}
 
-    async def record_success(self, circuit: dict):
+    async def record_success(self):
         breaker_key = self._breaker_key()
+        circuit = await self._redis.get_hset(breaker_key)
 
         if circuit["state"] == CircuitState.CLOSED:
             circuit["failures"] = 0
@@ -129,10 +130,13 @@ class CircuitBreaker:
 
         await self._redis.create_hset(breaker_key, circuit)
 
-    async def record_failure(self, circuit: dict) -> dict | None:
+    async def record_failure(self) -> dict | None:
         """Registers a failed call against the breaker. Returns the 503
         response when this failure trips the circuit open, else None.
         """
+        breaker_key = self._breaker_key()
+        circuit = await self._redis.get_hset(breaker_key)
+
         circuit["failures"] += 1
         breaker_key = self._breaker_key()
         circuit["retry_at"] = self._retry_at()

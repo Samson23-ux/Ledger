@@ -1,4 +1,5 @@
 from typing import Type, TypeVar
+from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 
 TRepo = TypeVar("TRepo")
@@ -11,31 +12,37 @@ rebinding each repo to the same session.
 
 
 class UnitOfWorkRepository:
-    def __init__(self, session: AsyncSession):
-        self._session = session
+    def __init__(self, sync_session: Session = None, async_session: AsyncSession = None):
+        self._sync_session = sync_session
+        self._async_session = async_session
+
         self._repositories: dict[type, object] = {}
 
     @property
-    def session(self) -> AsyncSession:
-        return self._session
+    def async_session(self) -> AsyncSession:
+        return self._async_session
+
+    @property
+    def sync_session(self) -> Session:
+        return self._sync_session
 
     def repo(self, repository_cls: Type[TRepo], **kwargs) -> TRepo:
         repo = self._repositories.get(repository_cls)
 
         if repo is None:
-            repo = repository_cls(async_session=self._session, **kwargs)
+            repo = repository_cls(async_session=self._async_session, **kwargs)
             self._repositories[repository_cls] = repo
 
         return repo
 
     async def flush(self):
-        await self._session.flush()
+        await self._async_session.flush()
 
     async def refresh(self, model):
-        await self._session.refresh(model)
+        await self._async_session.refresh(model)
 
     async def commit(self):
-        await self._session.commit()
+        await self._async_session.commit()
 
     async def rollback(self):
-        await self._session.rollback()
+        await self._async_session.rollback()

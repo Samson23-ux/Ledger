@@ -1,8 +1,8 @@
 import enum
 import uuid
+from decimal import Decimal
 from datetime import datetime, timezone
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.dialects.postgresql import BIGINT
 from sqlalchemy import (
     text,
     UUID,
@@ -13,6 +13,7 @@ from sqlalchemy import (
     Enum,
     Boolean,
     PrimaryKeyConstraint,
+    Numeric
 )
 
 
@@ -46,8 +47,8 @@ class PaymentTransaction(Base):
             "wallets.id", ondelete="CASCADE", name="payment_transactions_wallet_id_fk"
         ),
     )
-    paystack_reference: Mapped[str | None] = mapped_column(Text, unique=True)
-    amount: Mapped[int] = mapped_column(BIGINT)
+    paystack_reference: Mapped[str | None] = mapped_column(Text, unique=True, default=None)
+    amount: Mapped[Decimal] = mapped_column(Numeric(precision=10, scale=2))
     currency: Mapped[enum.Enum] = mapped_column(
         Enum(CurrencyEnum, values_callable=lambda e: [m.value for m in e]),
         default=CurrencyEnum.NGN,
@@ -59,21 +60,25 @@ class PaymentTransaction(Base):
         Enum(TransactionStatus, values_callable=lambda e: [m.value for m in e]),
         default=TransactionStatus.PENDING,
     )
-    gateway_response: Mapped[str | None] = mapped_column(Text)
-    authorization_code: Mapped[str | None] = mapped_column(Text)  # card-only channel
+    gateway_response: Mapped[str | None] = mapped_column(Text, default=None)
+    authorization_code: Mapped[str | None] = mapped_column(
+        Text, default=None
+    )  # card-only channel
     bank_transfer_account_number: Mapped[str | None] = mapped_column(
-        Text
+        Text, default=None
     )  # transfer-only channel
     bank_transfer_expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
+        DateTime(timezone=True), default=None
     )  # transfer-only channel
-    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    paid_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
     wallet_credited: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
     )
 
     __table_args__ = (
@@ -87,5 +92,5 @@ class PaymentTransaction(Base):
         ),
         Index("idx_payment_transactions_status_id", status, id, unique=True),
         Index("idx_payment_transactions_created_at", created_at),
-        Index("idx_payment_transactions_updated_at", updated_at)
+        Index("idx_payment_transactions_updated_at", updated_at),
     )

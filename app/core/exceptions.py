@@ -62,6 +62,17 @@ class UserNotFoundError(AppException):
         self.user_email = user_email
 
 
+class WalletCreditNotFoundError(AppException):
+    """Wallet credit not found"""
+
+    def __init__(self, id: str):
+        self.id = id
+
+
+class WalletCreditsNotFoundError(AppException):
+    """Wallet credits not found"""
+
+
 class InvalidOtpError(AppException):
     """Invalid otp received"""
 

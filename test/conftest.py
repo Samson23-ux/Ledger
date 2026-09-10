@@ -25,6 +25,7 @@ from app.database.session import get_session
 from app.api.services.auth import AuthService
 from app.api.services.otp import OtpService
 from app.api.repo.redis import RedisRepository
+from app.api.services.thread_pool import ThreadPool
 from app.deps import (
     get_auth_service,
     get_redis_client,
@@ -155,7 +156,7 @@ async def create_user(async_client: AsyncClient):
 
 def mock_auth_service(fake_otp: Otp, redis: Redis):
     redis_repo = RedisRepository(async_redis=redis)
-    auth_service = AuthService(redis_repo=redis_repo)
+    auth_service = AuthService(redis_repo=redis_repo, pool=ThreadPool())
 
     otp_service = MagicMock(spec=OtpService)
     otp_service.get_otp = AsyncMock(return_value=fake_otp)
@@ -165,13 +166,13 @@ def mock_auth_service(fake_otp: Otp, redis: Redis):
     # and update the actual test user, so run the real setup and only
     # swap in the mocked otp_service afterwards - this bypasses the need
     # for a real otp row to exist without faking the user side too.
-    real_uow_otp_user = auth_service._uow_otp_user
+    real_uow_user_wallet = auth_service._uow_user_wallet
 
-    async def _uow_otp_user(uow):
-        await real_uow_otp_user(uow)
+    async def _uow_user_wallet(uow, with_otp: bool = False):
+        await real_uow_user_wallet(uow, with_otp)
         auth_service._otp_service = otp_service
 
-    auth_service._uow_otp_user = _uow_otp_user
+    auth_service._uow_user_wallet = _uow_user_wallet
 
     app.dependency_overrides[get_auth_service] = lambda: auth_service
 

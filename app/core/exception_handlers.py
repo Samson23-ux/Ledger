@@ -10,6 +10,8 @@ from app.core.exceptions import (
     CredentialError,
     AuthorizationError,
     ServiceUnavailable,
+    WalletCreditNotFoundError,
+    WalletCreditsNotFoundError,
 )
 
 
@@ -91,6 +93,28 @@ class ExceptionHandler:
                 initial_detail={
                     "status": "error",
                     "message": "User not found with email {user_email}",
+                },
+            ),
+        )
+
+        self._app.add_exception_handler(
+            exc_class_or_status_code=WalletCreditNotFoundError,
+            handler=create_exception_handler(
+                status_code=404,
+                initial_detail={
+                    "status": "error",
+                    "message": "Wallet credit not found with id {id}",
+                },
+            ),
+        )
+
+        self._app.add_exception_handler(
+            exc_class_or_status_code=WalletCreditsNotFoundError,
+            handler=create_exception_handler(
+                status_code=404,
+                initial_detail={
+                    "status": "error",
+                    "message": "Wallet credits not found",
                 },
             ),
         )

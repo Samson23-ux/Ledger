@@ -7,6 +7,7 @@ from app.api.models.user import UserType
 
 
 class UserBase(BaseModel):
+    id: UUID
     type: UserType
     first_name: str
     last_name: str
@@ -30,10 +31,8 @@ class UserInDB(GoogleUser, EmailUser):
 
 
 class GoogleUserResponse(GoogleUser):
-    id: UUID
     created_at: datetime
 
 
 class EmailUserResponse(EmailUser):
-    id: UUID
     created_at: datetime

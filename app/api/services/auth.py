@@ -14,7 +14,10 @@ from app.api.repo.user import UserRepository
 from app.api.services.user import UserService
 from app.api.repo.redis import RedisRepository
 from app.api.services.email import EmailService
+from app.api.repo.wallets import WalletRepository
 from app.api.repo.uow import UnitOfWorkRepository
+from app.api.services.wallets import WalletService
+from app.api.services.thread_pool import ThreadPool
 from app.worker.tasks.email import send_verification_email
 from app.api.schemas.user import (
     UserInDB,
@@ -38,10 +41,9 @@ from app.core.exceptions import (
 
 
 class AuthService:
-    def __init__(self, redis_repo: RedisRepository):
+    def __init__(self, redis_repo: RedisRepository, pool: ThreadPool):
         self._uow = None
-        self._otp_service = None
-        self._user_service = None
+        self._pool = pool
         self._redis_repo = redis_repo
 
     SETTINGS = get_settings()
@@ -49,16 +51,22 @@ class AuthService:
     async def _setup_uow(self, uow: UnitOfWorkRepository):
         self._uow = uow
 
-    async def _uow_otp_user(self, uow: UnitOfWorkRepository):
+    async def _uow_user_wallet(self, uow: UnitOfWorkRepository, with_otp: bool = False):
         await self._setup_uow(uow)
 
-        otp_repo = self._uow.repo(OtpRepository)
         user_repo = self._uow.repo(UserRepository)
+        wallet_repo = self._uow.repo(WalletRepository)
 
-        self._otp_service = OtpService(otp_repo=otp_repo)
         self._user_service = UserService(
             user_repo=user_repo, redis_repo=self._redis_repo
         )
+        self._wallet_service = WalletService(
+            pool=self._pool, wallet_repo=wallet_repo, redis_repo=self._redis_repo
+        )
+
+        if with_otp:
+            otp_repo = self._uow.repo(OtpRepository)
+            self._otp_service = OtpService(otp_repo=otp_repo)
 
     async def _get_tokens(self, email: str, user_type: str, security: Security):
         token_data: TokenData = TokenData(email=email, user_type=user_type)
@@ -152,6 +160,7 @@ class AuthService:
                 raise UserExistsError(user_email=user_email)
         else:
             user = UserInDB(
+                id=uuid7(),
                 email=user_email,
                 first_name=first_name,
                 last_name=last_name,
@@ -178,8 +187,10 @@ class AuthService:
         )
 
     async def sign_up_with_google(
-        self, payload: dict, user_service: UserService, security: Security
+        self, payload: dict, uow: UnitOfWorkRepository, security: Security
     ) -> tuple[str]:
+        await self._uow_user_wallet(uow)
+
         user_info: dict = payload.get("userinfo")
 
         google_id: str = user_info.get("sub")
@@ -187,16 +198,17 @@ class AuthService:
         first_name: str = user_info.get("given_name")
         last_name: str = user_info.get("family_name")
 
-        existing_user: User | None = await user_service._get_user_by_email(
+        existing_user: User | None = await self._user_service._get_user_by_email(
             google_email=user_email,
             is_verified=True,
         )
 
         if existing_user:
             existing_user.is_active = True
-            await user_service.update_user(existing_user)
+            await self._user_service.update_user(existing_user)
         else:
             user = UserInDB(
+                id=uuid7(),
                 type="google",
                 is_active=True,
                 is_verified=True,
@@ -205,7 +217,8 @@ class AuthService:
                 google_id=google_id,
                 google_email=user_email,
             )
-            await user_service.create_user(user, user_email)
+            await self._user_service.create_user(user, user_email)
+            await self._wallet_service._create_wallet(user.id)
 
         access_token, refresh_token = await self._get_tokens(
             user_email, "google", security
@@ -223,7 +236,7 @@ class AuthService:
         uow: UnitOfWorkRepository,
         email_verify: EmailVerify,
     ):
-        await self._uow_otp_user(uow)
+        await self._uow_user_wallet(uow, with_otp=True)
 
         user_email: str = email_verify.email
         existing_user: User | None = await self._user_service._get_user_by_email(
@@ -253,6 +266,7 @@ class AuthService:
 
             await self._otp_service.update_otp(otp, user_email)
             await self._user_service.update_user(existing_user)
+            await self._wallet_service._create_wallet(existing_user.id)
 
             await self._uow.commit()
 

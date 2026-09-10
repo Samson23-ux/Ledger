@@ -14,6 +14,7 @@ from sqlalchemy import (
 )
 
 from app.api.models.base import Base
+from app.api.models.state import TransactionStatus
 
 
 class EntityEnum(str, enum.Enum):
@@ -33,12 +34,24 @@ class TransactionStateEvent(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID, server_default=text("uuid_generate_v7()")
     )
+    transaction_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey(
+            "payment_transactions.id",
+            ondelete="CASCADE",
+            name="state_transaction_id_fk",
+        ),
+    )
     entity_type: Mapped[enum.Enum] = mapped_column(
         Enum(EntityEnum, values_callable=lambda e: [m.value for m in e])
     )
-    entity_id: Mapped[uuid.UUID] = mapped_column(UUID)
-    from_status: Mapped[str | None] = mapped_column(Text)
-    to_status: Mapped[str] = mapped_column(Text)
+    from_status: Mapped[enum.Enum | None] = mapped_column(
+        Enum(TransactionStatus, values_callable=lambda e: [m.value for m in e]),
+        default=None,
+    )
+    to_status: Mapped[enum.Enum] = mapped_column(
+        Enum(TransactionStatus, values_callable=lambda e: [m.value for m in e])
+    )
     source: Mapped[enum.Enum] = mapped_column(
         Enum(SourceEnum, values_callable=lambda e: [m.value for m in e])
     )
@@ -51,6 +64,7 @@ class TransactionStateEvent(Base):
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name="transaction_state_events_pk"),
-        Index("idx_transaction_state_events_entity", entity_type, entity_id),
+        Index("idx_transaction_state_events_entity", transaction_id, entity_type),
+        Index("idx_transaction_state_status", from_status, to_status),
         Index("idx_transaction_state_events_occurred_at", occurred_at),
     )

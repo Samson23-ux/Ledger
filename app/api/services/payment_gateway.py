@@ -16,24 +16,11 @@ def handle_paystack_errors(func):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except PaystackException.ApiKeyError as exc:
-            sentry_sdk.capture_exception(exc)
-            sentry_logger.error(
-                "Configured paystack API Key invalid", extra={"exc": str(exc)}
-            )
-
+        except PaystackException.ApiKeyError:
             raise
-        except PaystackException.UnauthorizedException as exc:
-            sentry_sdk.capture_exception(exc)
-            sentry_logger.error(
-                "Unauthorized paystack initialization request", extra={"exc": str(exc)}
-            )
-
+        except PaystackException.UnauthorizedException:
             raise
-        except PaystackException.ServiceException as exc:
-            sentry_sdk.capture_exception(exc)
-            sentry_logger.error("Paystack service unavailable", extra={"exc": str(exc)})
-
+        except PaystackException.ServiceException:
             raise
 
     return wrapper
