@@ -3,26 +3,26 @@ from sqlalchemy import select
 
 
 from app.api.repo.base import BaseRepository
-from app.api.schemas.transaction_state import TransactionStateBase
-from app.api.models.transaction_state_events import TransactionStateEvent
+from app.api.schemas.refund_state import RefundStateBase
+from app.api.models.refund_state_events import RefundStateEvent
 
 
-class TransactionStateRepository(
-    BaseRepository[TransactionStateBase, TransactionStateEvent]
+class RefundStateRepository(
+    BaseRepository[RefundStateBase, RefundStateEvent]
 ):
-    model = TransactionStateEvent
+    model = RefundStateEvent
 
     def _entity_to_model(self, entity):
-        return TransactionStateEvent(**entity.model_dump())
+        return RefundStateEvent(**entity.model_dump())
 
     def _get_filters(self, **filters):
         filter_conditions = []
 
         if "id" in filters:
             filter_conditions.append(self.model.id == filters["id"])
-        if "transaction_id" in filters:
+        if "refund_id" in filters:
             filter_conditions.append(
-                self.model.transaction_id == filters["transaction_id"]
+                self.model.refund_id == filters["refund_id"]
             )
         if "from_status" in filters:
             filter_conditions.append(self.model.from_status == filters["from_status"])
@@ -34,7 +34,7 @@ class TransactionStateRepository(
     def _get_sort_fields(self, sort):
         return super()._get_sort_fields(sort)
 
-    async def get_transaction_state(self, id: UUID):
-        stmt = select(self.model).where(self.model.transaction_id == id)
+    async def get_refund_state(self, id: UUID):
+        stmt = select(self.model).where(self.model.refund_id == id)
         res = await self._async_session.execute(stmt)
         return res.scalars().all()

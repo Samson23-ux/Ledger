@@ -17,20 +17,23 @@ from app.api.repo.user import UserRepository
 from app.api.services.auth import AuthService
 from app.api.services.user import UserService
 from app.api.repo.email import EmailRepository
-
-
 from app.api.repo.redis import RedisRepository
 from app.api.services.email import EmailService
 from app.api.repo.outbox import OutBoxRepository
 from app.api.services.outbox import OutBoxService
 from app.api.repo.uow import UnitOfWorkRepository
+
 from app.api.repo.wallets import WalletRepository
+from app.api.repo.refunds import RefundRepository
+from app.api.services.refunds import RefundService
 from app.api.services.wallets import WalletService
 from app.api.services.thread_pool import ThreadPool
 from app.core.exceptions import AuthenticationError
+from app.api.repo.refund_state import RefundStateRepository
 from app.api.repo.transactions import TransactionRepository
 from app.api.services.circuit_breaker import CircuitBreaker
 from app.api.services.transactions import TransactionService
+from app.api.services.refund_state import RefundStateService
 from app.api.repo.webhook_events import WebhookEventRepository
 from app.api.repo.wallet_credits import WalletCreditRepository
 from app.api.services.wallet_credits import WalletCreditService
@@ -38,6 +41,8 @@ from app.api.repo.authorization_codes import AuthCodeRepository
 from app.api.services.webhook_events import WebhookEventService
 from app.api.services.authorization_codes import AuthCodeService
 from app.api.services.payment_gateway import Transaction, Refund
+from app.api.repo.transaction_state import TransactionStateRepository
+from app.api.services.transaction_state import TransactionStateService
 
 SETTINGS = get_settings()
 
@@ -108,8 +113,20 @@ async def get_transaction_repo(session: DBSession) -> TransactionRepository:
     return TransactionRepository(async_session=session)
 
 
+async def get_transaction_state_repo(session: DBSession) -> TransactionStateRepository:
+    return TransactionStateRepository(async_session=session)
+
+
 async def get_webhook_repo(session: DBSession) -> WebhookEventRepository:
     return WebhookEventRepository(async_session=session)
+
+
+async def get_refund_repo(session: DBSession) -> RefundRepository:
+    return RefundRepository(async_session=session)
+
+
+async def get_refund_state_repo(session: DBSession) -> RefundStateRepository:
+    return RefundStateRepository(async_session=session)
 
 
 OtpRepo = Annotated[OtpRepository, Depends(get_otp_repo)]
@@ -118,11 +135,16 @@ RedisRepo = Annotated[RedisRepository, Depends(get_redis_repo)]
 EmailRepo = Annotated[EmailRepository, Depends(get_email_repo)]
 WalletRepo = Annotated[WalletRepository, Depends(get_wallet_repo)]
 OutBoxRepo = Annotated[OutBoxRepository, Depends(get_out_box_repo)]
+RefundRepo = Annotated[RefundRepository, Depends(get_refund_repo)]
 AuthCodeRepo = Annotated[AuthCodeRepository, Depends(get_auth_code_repo)]
 UnitOfWorkRepo = Annotated[UnitOfWorkRepository, Depends(get_unit_of_work)]
 WalletCreditRepo = Annotated[WalletCreditRepository, Depends(get_credit_repo)]
 WebhookEventRepo = Annotated[WebhookEventRepository, Depends(get_webhook_repo)]
 TransactionRepo = Annotated[TransactionRepository, Depends(get_transaction_repo)]
+RefundStateRepo = Annotated[RefundStateRepository, Depends(get_refund_state_repo)]
+TransactionStateRepo = Annotated[
+    TransactionStateRepository, Depends(get_transaction_state_repo)
+]
 
 #  -------------------- Service dependency ---------------------------- #
 
@@ -182,12 +204,32 @@ async def get_credit_service(credit_repo: WalletCreditRepo) -> WalletCreditServi
     return WalletCreditService(credit_repo=credit_repo)
 
 
-async def get_transaction_service(transaction_repo: TransactionRepo) -> TransactionService:
+async def get_transaction_service(
+    transaction_repo: TransactionRepo,
+) -> TransactionService:
     return TransactionService(transaction_repo=transaction_repo)
+
+
+async def get_transaction_state_service(
+    state_repo: TransactionStateRepo,
+) -> TransactionStateService:
+    return TransactionStateService(state_repo=state_repo)
 
 
 async def get_webhook_service(webhook_repo: WebhookEventRepo) -> WebhookEventService:
     return WebhookEventService(webhook_repo=webhook_repo)
+
+
+async def get_refund_service(
+    pool: ThreadPoolDep, refund_repo: RefundRepo
+) -> RefundService:
+    return RefundService(pool=pool, refund_repo=refund_repo)
+
+
+async def get_refund_state_service(
+    state_repo: RefundStateRepo,
+) -> RefundStateService:
+    return RefundStateService(state_repo=state_repo)
 
 
 RefundDep = Annotated[Refund, Depends(get_refund)]
@@ -196,6 +238,7 @@ TransactionDep = Annotated[Transaction, Depends(get_transaction)]
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]
 EmailServiceDep = Annotated[EmailService, Depends(get_email_service)]
+RefundServiceDep = Annotated[RefundService, Depends(get_refund_service)]
 WalletServiceDep = Annotated[WalletService, Depends(get_wallet_service)]
 OutBoxServiceDep = Annotated[OutBoxService, Depends(get_out_box_service)]
 CircuitBreakerDep = Annotated[CircuitBreaker, Depends(get_circuit_breaker)]
@@ -203,6 +246,10 @@ AuthCodeServiceDep = Annotated[AuthCodeService, Depends(get_auth_code_service)]
 WalletCreditServiceDep = Annotated[WalletCreditService, Depends(get_credit_service)]
 WebhookEventServiceDep = Annotated[WebhookEventService, Depends(get_webhook_service)]
 TransactionServiceDep = Annotated[TransactionService, Depends(get_transaction_service)]
+RefundStateServiceDep = Annotated[RefundStateService, Depends(get_refund_state_service)]
+TransactionStateServiceDep = Annotated[
+    TransactionStateService, Depends(get_transaction_state_service)
+]
 
 # ------------------------ Auth dependency ---------------------------- #
 

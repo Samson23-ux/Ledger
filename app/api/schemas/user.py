@@ -3,7 +3,8 @@ from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel, EmailStr, ConfigDict
 
-from app.api.models.user import UserType
+
+from app.api.models.enum import UserType
 
 
 class UserBase(BaseModel):

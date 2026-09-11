@@ -16,10 +16,7 @@ from sqlalchemy import (
 
 
 from app.api.models.base import Base
-
-
-class CurrencyEnum(str, enum.Enum):
-    NGN = "NGN"
+from app.api.models.enum import CurrencyEnum
 
 
 class Wallet(Base):

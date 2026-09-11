@@ -7,12 +7,7 @@ from sqlalchemy import text, UUID, DateTime, Text, Enum, PrimaryKeyConstraint, I
 
 
 from app.api.models.base import Base
-
-
-class OutBoxEnum(str, enum.Enum):
-    PENDING = "pending"
-    COMPLETED = "completed"
-    PROCESSING = "processing"
+from app.api.models.enum import OutBoxEnum
 
 
 class OutBox(Base):

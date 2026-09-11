@@ -14,29 +14,29 @@ from sqlalchemy import (
 
 from app.api.models.base import Base
 from app.api.models.enum import SourceEnum
-from app.api.models.enum import TransactionStatus
+from app.api.models.enum import RefundStatus
 
 
-class TransactionStateEvent(Base):
-    __tablename__ = "transaction_state_events"
+class RefundStateEvent(Base):
+    __tablename__ = "refund_state_events"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID, server_default=text("uuid_generate_v7()")
     )
-    transaction_id: Mapped[uuid.UUID] = mapped_column(
+    refund_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey(
-            "payment_transactions.id",
+            "refunds.id",
             ondelete="CASCADE",
-            name="state_transaction_id_fk",
+            name="state_refund_id_fk",
         ),
     )
     from_status: Mapped[enum.Enum | None] = mapped_column(
-        Enum(TransactionStatus, values_callable=lambda e: [m.value for m in e]),
+        Enum(RefundStatus, values_callable=lambda e: [m.value for m in e]),
         default=None,
     )
     to_status: Mapped[enum.Enum] = mapped_column(
-        Enum(TransactionStatus, values_callable=lambda e: [m.value for m in e])
+        Enum(RefundStatus, values_callable=lambda e: [m.value for m in e])
     )
     source: Mapped[enum.Enum] = mapped_column(
         Enum(SourceEnum, values_callable=lambda e: [m.value for m in e])
@@ -46,8 +46,8 @@ class TransactionStateEvent(Base):
     )
 
     __table_args__ = (
-        PrimaryKeyConstraint("id", name="transaction_state_events_pk"),
-        Index("idx_transaction_state_events_transaction_id", transaction_id),
-        Index("idx_transaction_state_status", from_status, to_status),
-        Index("idx_transaction_state_events_occurred_at", occurred_at),
+        PrimaryKeyConstraint("id", name="refund_state_events_pk"),
+        Index("idx_refund_state_events_refund_id", refund_id),
+        Index("idx_refund_state_status", from_status, to_status),
+        Index("idx_refund_state_events_occurred_at", occurred_at),
     )

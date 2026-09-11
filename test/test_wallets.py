@@ -11,9 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.models.user import User
 from app.api.models.wallets import Wallet
+from app.api.models.enum import ChannelEnum
+from app.api.models.enum import TransactionStatus
 from app.api.models.wallet_credits import WalletCredit
-from app.api.models.state import TransactionStatus
-from app.api.models.transactions import PaymentTransaction, ChannelEnum
+from app.api.models.transactions import PaymentTransaction
 
 
 def initialize_transaction_res():

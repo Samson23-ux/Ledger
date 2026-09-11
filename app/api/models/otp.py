@@ -14,11 +14,7 @@ from sqlalchemy import (
 )
 
 from app.api.models.base import Base
-
-
-class OtpStatus(str, enum.Enum):
-    VALID = "valid"
-    USED = "used"
+from app.api.models.enum import OtpStatus
 
 
 class Otp(Base):

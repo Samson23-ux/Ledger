@@ -5,8 +5,8 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 
-from app.api.models.state import TransactionStatus
-from app.api.models.transactions import ChannelEnum
+from app.api.models.enum import ChannelEnum
+from app.api.models.enum import TransactionStatus
 
 
 class TransactionBase(BaseModel):

@@ -5,8 +5,8 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, ConfigDict, Field
 
 
-from app.api.models.wallets import CurrencyEnum
-from app.api.models.transactions import ChannelEnum
+from app.api.models.enum import ChannelEnum
+from app.api.models.enum import CurrencyEnum
 
 
 class WalletBase(BaseModel):

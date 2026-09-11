@@ -10,8 +10,14 @@ from app.core.exceptions import (
     CredentialError,
     AuthorizationError,
     ServiceUnavailable,
+    RefundNotFoundError,
+    RefundsNotFoundError,
+    RefundStateNotFoundError,
+    TransactionNotFoundError,
+    TransactionsNotFoundError,
     WalletCreditNotFoundError,
     WalletCreditsNotFoundError,
+    TransactionStateNotFoundError,
 )
 
 
@@ -98,6 +104,17 @@ class ExceptionHandler:
         )
 
         self._app.add_exception_handler(
+            exc_class_or_status_code=WalletCreditsNotFoundError,
+            handler=create_exception_handler(
+                status_code=404,
+                initial_detail={
+                    "status": "error",
+                    "message": "Wallet credits not found",
+                },
+            ),
+        )
+
+        self._app.add_exception_handler(
             exc_class_or_status_code=WalletCreditNotFoundError,
             handler=create_exception_handler(
                 status_code=404,
@@ -109,12 +126,67 @@ class ExceptionHandler:
         )
 
         self._app.add_exception_handler(
-            exc_class_or_status_code=WalletCreditsNotFoundError,
+            exc_class_or_status_code=TransactionStateNotFoundError,
             handler=create_exception_handler(
                 status_code=404,
                 initial_detail={
                     "status": "error",
-                    "message": "Wallet credits not found",
+                    "message": "Transaction states not for transaction with id {id}",
+                },
+            ),
+        )
+
+        self._app.add_exception_handler(
+            exc_class_or_status_code=TransactionNotFoundError,
+            handler=create_exception_handler(
+                status_code=404,
+                initial_detail={
+                    "status": "error",
+                    "message": "Transaction not found with id {id}",
+                },
+            ),
+        )
+
+        self._app.add_exception_handler(
+            exc_class_or_status_code=TransactionsNotFoundError,
+            handler=create_exception_handler(
+                status_code=404,
+                initial_detail={
+                    "status": "error",
+                    "message": "Transactions not found",
+                },
+            ),
+        )
+
+        self._app.add_exception_handler(
+            exc_class_or_status_code=RefundStateNotFoundError,
+            handler=create_exception_handler(
+                status_code=404,
+                initial_detail={
+                    "status": "error",
+                    "message": "Refund states not for refund with id {id}",
+                },
+            ),
+        )
+
+        self._app.add_exception_handler(
+            exc_class_or_status_code=RefundNotFoundError,
+            handler=create_exception_handler(
+                status_code=404,
+                initial_detail={
+                    "status": "error",
+                    "message": "Refund not found with id {id}",
+                },
+            ),
+        )
+        
+        self._app.add_exception_handler(
+            exc_class_or_status_code=RefundsNotFoundError,
+            handler=create_exception_handler(
+                status_code=404,
+                initial_detail={
+                    "status": "error",
+                    "message": "Refunds not found",
                 },
             ),
         )

@@ -5,12 +5,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import DateTime, PrimaryKeyConstraint, UUID, String, Enum
 
 from app.api.models.base import Base
-
-
-class EmailStatus(str, enum.Enum):
-    PENDING = "pending"
-    DELIVERED = "delivered"
-    FAILED = "failed"
+from app.api.models.enum import EmailStatus
 
 
 class Email(Base):

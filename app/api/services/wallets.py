@@ -1,5 +1,5 @@
 import sentry_sdk
-from uuid import UUID, uuid7, uuid4
+from uuid import UUID, uuid7
 import sentry_sdk.logger as sentry_logger
 from datetime import datetime, timezone, timedelta
 from paystack import exceptions as PaystackException
@@ -86,7 +86,6 @@ class WalletService:
         )
 
         state_create: TransactionStateCreate = TransactionStateCreate(
-            entity_type="payment_transaction",
             transaction_id=transaction_create.id,
             to_status="pending",
             source="user_action",
@@ -97,7 +96,7 @@ class WalletService:
     async def _get_outbox_payload(
         self, email: str, amount: str, code: str
     ) -> OutBoxCreate:
-        out_box_id = uuid4()
+        out_box_id = uuid7()
         return OutBoxCreate(
             id=out_box_id,
             event_type="charge_authorization",

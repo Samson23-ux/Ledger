@@ -62,6 +62,42 @@ class UserNotFoundError(AppException):
         self.user_email = user_email
 
 
+class TransactionNotFoundError(AppException):
+    """Transaction not found"""
+
+    def __init__(self, id: str):
+        self.id = id
+
+
+class TransactionsNotFoundError(AppException):
+    """Transactions not found"""
+
+
+class TransactionStateNotFoundError(AppException):
+    """Transaction state not found"""
+
+    def __init__(self, id: str):
+        self.id = id
+
+
+class RefundNotFoundError(AppException):
+    """Refund not found"""
+
+    def __init__(self, id: str):
+        self.id = id
+
+
+class RefundsNotFoundError(AppException):
+    """Transactions not found"""
+
+
+class RefundStateNotFoundError(AppException):
+    """Refund state not found"""
+
+    def __init__(self, id: str):
+        self.id = id
+
+
 class WalletCreditNotFoundError(AppException):
     """Wallet credit not found"""
 

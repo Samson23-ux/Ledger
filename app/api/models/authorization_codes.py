@@ -17,7 +17,7 @@ from sqlalchemy import (
 
 
 from app.api.models.base import Base
-from app.api.models.transactions import ChannelEnum
+from app.api.models.enum import ChannelEnum
 
 
 class AuthorizationCode(Base):

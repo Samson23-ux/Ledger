@@ -18,8 +18,9 @@ from sqlalchemy import (
 
 
 from app.api.models.base import Base
-from app.api.models.wallets import CurrencyEnum
-from app.api.models.state import TransactionStatus
+from app.api.models.enum import ChannelEnum
+from app.api.models.enum import CurrencyEnum
+from app.api.models.enum import TransactionStatus
 
 
 class ChannelEnum(str, enum.Enum):
@@ -37,7 +38,7 @@ class PaymentTransaction(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey(
-            "users.id", ondelete="CASCADE", name="payment_transactionss_user_id_fk"
+            "users.id", ondelete="CASCADE", name="payment_transactions_user_id_fk"
         ),
         unique=True,
     )
@@ -83,7 +84,7 @@ class PaymentTransaction(Base):
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name="payment_transactions_pk"),
-        Index("idx_payment_transactions_user_id", user_id),
+        Index("idx_payment_transactions_user_id", user_id, id),
         Index("idx_payment_transactions_wallet_id", wallet_id),
         Index(
             "idx_payment_transactions_paystack_reference",

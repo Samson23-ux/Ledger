@@ -4,7 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
 
-from app.api.models.outbox import OutBoxEnum
+from app.api.models.enum import OutBoxEnum
 
 
 class OutBoxBase(BaseModel):
