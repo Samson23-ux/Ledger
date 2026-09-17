@@ -13,6 +13,7 @@ from sqlalchemy import (
     Enum,
     Boolean,
     Numeric,
+    BigInteger,
     PrimaryKeyConstraint,
 )
 
@@ -31,7 +32,6 @@ class Refund(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey("users.id", ondelete="CASCADE", name="refunds_user_id_fk"),
-        unique=True,
     )
     payment_transaction_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -41,8 +41,8 @@ class Refund(Base):
             name="wallet_credits_payment_transaction_id_fk",
         ),
     )
-    paystack_refund_id: Mapped[str | None] = mapped_column(
-        Text, unique=True, default=None
+    paystack_refund_id: Mapped[int | None] = mapped_column(
+        BigInteger, unique=True, default=None
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(precision=10, scale=2))
     currency: Mapped[enum.Enum] = mapped_column(
@@ -66,6 +66,7 @@ class Refund(Base):
         DateTime(timezone=True), default=None
     )
 
+    user = relationship("User", viewonly=True, lazy="selectin")
     transaction = relationship("PaymentTransaction", viewonly=True, lazy="selectin")
 
     __table_args__ = (

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request
 
 
-from app.deps import SecurityDep, WebhookEventServiceDep
+from app.deps import SecurityDep, WebhookEventServiceDep, UnitOfWorkRepo
 
 router = APIRouter()
 
@@ -12,9 +12,14 @@ router = APIRouter()
     description="A webhook endpoint to listen for paystack events",
 )
 async def receive_webhook_events(
-    request: Request, security: SecurityDep, webhook_service: WebhookEventServiceDep
+    request: Request,
+    uow: UnitOfWorkRepo,
+    security: SecurityDep,
+    webhook_service: WebhookEventServiceDep,
 ):
     payload: dict = await request.json()
     webhook_signature = request.headers.get("x-paystack-signature")
 
-    await webhook_service.process_webhook_event(security, webhook_signature, payload)
+    await webhook_service.process_webhook_event(
+        security, webhook_signature, payload, uow
+    )

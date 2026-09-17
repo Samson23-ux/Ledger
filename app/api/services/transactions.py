@@ -5,6 +5,7 @@ import sentry_sdk.logger as sentry_logger
 
 from app.api.models.user import User
 from app.api.services.thread_pool import ThreadPool
+from app.api.models.transactions import PaymentTransaction
 from app.api.schemas.transactions import TransactionCreate
 from app.api.models.transactions import PaymentTransaction
 from app.api.repo.transactions import TransactionRepository
@@ -33,6 +34,21 @@ class TransactionService:
     async def _get_transaction(self, **filters) -> PaymentTransaction | None:
         return await self._transaction_repo.get_record(**filters)
 
+    async def _update_transaction(self, transaction: PaymentTransaction):
+        self._transaction_repo.add(model=transaction)
+
+    def _get_pending_transactions(self, **filters):
+        return self._transaction_repo.get_pending_transactions(**filters)
+
+    def _get_transaction_sync(self, **filters) -> PaymentTransaction:
+        return self._transaction_repo.get_sync_record(**filters)
+
+    def _update_transaction_records(self, records: list[dict]):
+        self._transaction_repo._update_transaction_records(records)
+
+    def _update_transaction_sync(self, transaction: PaymentTransaction):
+        self._transaction_repo.sync_add(model=transaction)
+
     async def get_transactions(
         self,
         curr_user: User,
@@ -48,13 +64,12 @@ class TransactionService:
                 sort, order, cursor, limit, user_id=user_id
             )
 
-            if not res:
+            transactions_db = res.get("data")
+            if not transactions_db:
                 sentry_logger.error(
                     "Transactions not found", extra={"user_id": user_id}
                 )
                 raise TransactionsNotFoundError()
-
-            transactions_db = res.get("data")
 
             transactions = []
             for transaction in transactions_db:

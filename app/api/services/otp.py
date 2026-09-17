@@ -14,12 +14,13 @@ class OtpService:
     async def get_otp(self, **filters) -> Otp | None:
         return await self._otp_repo.get_record(**filters)
 
-    def create_otp(self, otp: OtpInDB, email: str):
+    async def create_otp(self, otp: OtpInDB, email: str):
         try:
-            self._otp_repo.sync_add(entity=otp)
-            self._otp_repo.sync_commit()
+            self._otp_repo.add(entity=otp)
+            await self._otp_repo.commit()
         except Exception as exc:
-            self._otp_repo.sync_rollback()
+            await self._otp_repo.rollback()
+
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
                 "Error occured while creating otp for user with email {email}",

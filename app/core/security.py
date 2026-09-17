@@ -1,4 +1,5 @@
 import json
+import hmac
 import base64
 import hashlib
 from uuid import uuid4
@@ -60,10 +61,12 @@ class Security:
     async def verify_webhook_signature(
         self, received_signature: str, payload: dict
     ) -> bool:
-        derived_signature: str = hashlib.sha512(
-            json.dumps(payload).encode()
+        derived_signature: str = hmac.new(
+            self.SETTINGS.PAYSTACK_API_KEY.encode(),
+            json.dumps(payload).encode(),
+            hashlib.sha512,
         ).hexdigest()
-        return received_signature == derived_signature
+        return hmac.compare_digest(derived_signature, received_signature)
 
     async def create_access_token(
         self, token_data: TokenData, expire_time: Optional[int] = None

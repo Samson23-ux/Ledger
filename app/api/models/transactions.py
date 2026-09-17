@@ -2,7 +2,7 @@ import enum
 import uuid
 from decimal import Decimal
 from datetime import datetime, timezone
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import (
     text,
     UUID,
@@ -68,9 +68,9 @@ class PaymentTransaction(Base):
     bank_transfer_account_number: Mapped[str | None] = mapped_column(
         Text, default=None
     )  # transfer-only channel
-    bank_transfer_expires_at: Mapped[datetime | None] = mapped_column(
+    card_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None
-    )  # transfer-only channel
+    )
     paid_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None
     )
@@ -81,6 +81,9 @@ class PaymentTransaction(Base):
     updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None
     )
+
+    user = relationship("User", viewonly=True, lazy="selectin")
+    wallet = relationship("Wallet", viewonly=True, lazy="selectin")
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name="payment_transactions_pk"),

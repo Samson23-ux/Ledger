@@ -217,7 +217,7 @@ class TestResendOtp:
     async def test_resend_otp_token(
         self, async_client: httpx.AsyncClient, create_user: httpx.Response
     ):
-        path: str = "app.api.services.auth.send_verification_email.apply_async"
+        path: str = "app.api.services.auth.send_email.apply_async"
 
         resend_otp_payload: dict = {
             "email": "user@example.com",

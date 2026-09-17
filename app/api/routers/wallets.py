@@ -98,13 +98,13 @@ async def get_wallet_credit(
 )
 async def wallet_fund_callback(
     request: Request,
+    uow: UnitOfWorkRepo,
     wallet_service: WalletServiceDep,
     curr_user: CurrentActiveCachedUser,
     reference: Annotated[str, Query(...)],
-    transaction_service: TransactionServiceDep,
 ):
     transaction = await wallet_service.wallet_callback(
-        curr_user, reference, transaction_service
+        curr_user, reference, uow
     )
     return SuccessResponse(message="Transaction initiated", data=transaction)
 

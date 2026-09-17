@@ -68,6 +68,22 @@ class Transaction(PaymentGateway):
         return res
 
     @handle_paystack_errors
+    def fetch_transaction(self, id: int):
+        self.set_api_key()
+
+        try:
+            res = paystack.Transaction.fetch(id=id)
+            return res
+        except PaystackException.NotFoundException as exc:
+            sentry_sdk.capture_exception(exc)
+            sentry_logger.error(
+                "Transaction not found with the provided id",
+                extra={"exc": str(exc), "id": id},
+            )
+
+            raise
+
+    @handle_paystack_errors
     def verify_transaction(self, reference: str):
         self.set_api_key()
 

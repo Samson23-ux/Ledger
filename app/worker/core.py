@@ -1,3 +1,6 @@
+from httpx import Client, Limits
+
+
 from app.core.config import get_settings
 from app.api.repo.otp import OtpRepository
 from app.api.services.otp import OtpService
@@ -26,5 +29,24 @@ def get_email_service() -> EmailService:
 
 def get_otp_service() -> OtpService:
     session = next(get_db_session())
-    otp_service: OtpService = OtpService(otp_repo=OtpRepository(sync_session=session))
+    otp_service: OtpService = OtpService(
+        otp_repo=OtpRepository(sync_session=session),
+    )
     return otp_service
+
+
+def raise_for_status_5xx(response):
+    return response.raise_for_status
+
+
+def http_client() -> Client:
+    limits = Limits(
+        max_connections=100,
+        max_keepalive_connections=50,
+        keepalive_expiry=60 * 5,
+    )
+    return Client(
+        timeout=10,
+        limits=limits,
+        event_hooks={"response": [raise_for_status_5xx]},
+    )

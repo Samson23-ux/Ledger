@@ -66,6 +66,27 @@ def charge_authorization_res():
     }
 
 
+def fetch_transaction_res():
+    return {
+        "status": True,
+        "message": "Transaction retrieved",
+        "data": {
+            "id": 4099260516,
+            "domain": "test",
+            "status": "success",
+            "reference": "re4lyvq3s3",
+            "receipt_number": None,
+            "amount": 500000,
+            "message": None,
+            "gateway_response": "Successful",
+            "paid_at": "2024-08-22T09:15:02.000Z",
+            "created_at": "2024-08-22T09:14:24.000Z",
+            "channel": "card",
+            "currency": "NGN",
+        },
+    }
+
+
 def verify_transaction_res():
     return {
         "status": True,
@@ -339,6 +360,84 @@ class TestTransaction:
             )
 
         paystack.Transaction.charge_authorization.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_fetch_transaction(self, paystack):
+        transaction_id = 4099260516
+        response: dict = fetch_transaction_res()
+
+        paystack.Transaction.fetch.return_value = response
+        res = await self.pool.run_in_pool(
+            self.transaction.fetch_transaction, id=transaction_id
+        )
+
+        paystack.Transaction.fetch.assert_called_once()
+
+        assert res["status"]
+        assert "reference" in res["data"]
+        assert res["message"] == response["message"]
+        assert res["data"]["reference"] == response["data"]["reference"]
+        assert res["data"]["gateway_response"] == response["data"]["gateway_response"]
+
+    @pytest.mark.asyncio
+    async def test_fetch_not_found_error(self, paystack):
+        transaction_id = 4099260516
+
+        paystack.Transaction.fetch.side_effect = PaystackException.NotFoundException(
+            status=404
+        )
+
+        with pytest.raises(PaystackException.NotFoundException):
+            await self.pool.run_in_pool(
+                self.transaction.fetch_transaction, id=transaction_id
+            )
+
+        paystack.Transaction.fetch.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_fetch_api_key_error(self, paystack):
+        transaction_id = 4099260516
+
+        paystack.Transaction.fetch.side_effect = PaystackException.ApiKeyError(
+            "API Key Error"
+        )
+
+        with pytest.raises(PaystackException.ApiKeyError):
+            await self.pool.run_in_pool(
+                self.transaction.fetch_transaction, id=transaction_id
+            )
+
+        paystack.Transaction.fetch.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_fetch_unauthorized_error(self, paystack):
+        transaction_id = 4099260516
+
+        paystack.Transaction.fetch.side_effect = (
+            PaystackException.UnauthorizedException(status=401)
+        )
+
+        with pytest.raises(PaystackException.UnauthorizedException):
+            await self.pool.run_in_pool(
+                self.transaction.fetch_transaction, id=transaction_id
+            )
+
+        paystack.Transaction.fetch.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_fetch_service_error(self, paystack):
+        transaction_id = 4099260516
+
+        paystack.Transaction.fetch.side_effect = PaystackException.ServiceException(
+            status=500
+        )
+
+        with pytest.raises(PaystackException.ServiceException):
+            await self.pool.run_in_pool(
+                self.transaction.fetch_transaction, id=transaction_id
+            )
+
+        paystack.Transaction.fetch.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_verify_transaction(self, paystack):

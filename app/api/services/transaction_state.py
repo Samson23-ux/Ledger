@@ -19,6 +19,12 @@ class TransactionStateService:
     async def _create_transaction_state(self, state_create: TransactionStateCreate):
         self._state_repo.add(entity=state_create)
 
+    def _create_state_records(self, records: list[dict]):
+        self._state_repo.create_state_records(records)
+
+    def _create_transaction_state_sync(self, state_create: TransactionStateCreate):
+        self._state_repo.sync_add(entity=state_create)
+
     async def get_transaction_state(
         self, id: UUID, curr_user: User
     ) -> list[TransactionStateResponse]:

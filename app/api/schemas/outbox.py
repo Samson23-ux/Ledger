@@ -19,6 +19,12 @@ class OutBoxCreate(OutBoxBase):
     pass
 
 
+class OutBoxInDB(OutBoxBase):
+    status: OutBoxEnum
+    created_at: datetime
+    processed_at: datetime
+
+
 class OutBoxUpdate(BaseModel):
     status: Optional[OutBoxEnum] = None
     processed_at: Optional[datetime] = None

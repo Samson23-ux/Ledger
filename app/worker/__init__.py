@@ -1,6 +1,6 @@
 from app.worker.celery_app import celery_app
 from app.worker.db import get_db_session, get_redis_client
-from app.worker.services import (
+from app.worker.core import (
     get_redis_repo,
     get_otp_service,
     get_email_service,

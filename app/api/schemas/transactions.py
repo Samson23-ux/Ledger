@@ -5,8 +5,8 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 
-from app.api.models.enum import ChannelEnum
 from app.api.models.enum import TransactionStatus
+from app.api.models.enum import ChannelEnum, CurrencyEnum
 
 
 class TransactionBase(BaseModel):
@@ -26,21 +26,17 @@ class TransactionCreate(TransactionBase):
     status: TransactionStatus = TransactionStatus.PENDING
 
 
-class TransactionUpdate(BaseModel):
-    idempotency_key: Optional[str] = None
-    user_id: Optional[UUID] = None
-    wallet_id: Optional[UUID] = None
-    paystack_reference: Optional[str] = None
-    amount: Optional[Decimal] = None
-    channel: Optional[ChannelEnum] = None
-    status: Optional[TransactionStatus] = None
+class TransactionInDB(TransactionBase):
+    currency: CurrencyEnum
+    status: TransactionStatus
     gateway_response: Optional[str] = None
     authorization_code: Optional[str] = None
     bank_transfer_account_number: Optional[str] = None
-    bank_transfer_expires_at: Optional[datetime] = None
+    card_expires_at: Optional[datetime] = None
     paid_at: Optional[datetime] = None
-    wallet_credited: Optional[bool] = None
-    updated_at: Optional[datetime] = None
+    wallet_credited: bool
+    created_at: datetime
+    updated_at: datetime
 
 
 class TransactionResponse(BaseModel):
@@ -58,7 +54,7 @@ class TransactionResponse(BaseModel):
     gateway_response: Optional[str] = None
     authorization_code: Optional[str] = None
     bank_transfer_account_number: Optional[str] = None
-    bank_transfer_expires_at: Optional[datetime] = None
+    card_expires_at: Optional[datetime] = None
     paid_at: Optional[datetime] = None
     wallet_credited: Optional[bool] = None
     created_at: datetime

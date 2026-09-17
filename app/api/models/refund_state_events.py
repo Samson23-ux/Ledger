@@ -31,11 +31,7 @@ class RefundStateEvent(Base):
             name="state_refund_id_fk",
         ),
     )
-    from_status: Mapped[enum.Enum | None] = mapped_column(
-        Enum(RefundStatus, values_callable=lambda e: [m.value for m in e]),
-        default=None,
-    )
-    to_status: Mapped[enum.Enum] = mapped_column(
+    status: Mapped[enum.Enum] = mapped_column(
         Enum(RefundStatus, values_callable=lambda e: [m.value for m in e])
     )
     source: Mapped[enum.Enum] = mapped_column(
@@ -47,7 +43,6 @@ class RefundStateEvent(Base):
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name="refund_state_events_pk"),
-        Index("idx_refund_state_events_refund_id", refund_id),
-        Index("idx_refund_state_status", from_status, to_status),
+        Index("idx_refund_state_events_refund_id", refund_id, status),
         Index("idx_refund_state_events_occurred_at", occurred_at),
     )

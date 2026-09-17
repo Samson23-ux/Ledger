@@ -182,14 +182,12 @@ async def get_wallet_service(
     return WalletService(pool=pool, wallet_repo=wallet_repo, redis_repo=redis_repo)
 
 
-async def get_refund(request: Request) -> Refund:
-    return Refund(api_key=SETTINGS.PAYSTACK_API_KEY, client=request.app.state.client)
+async def get_refund() -> Refund:
+    return Refund(api_key=SETTINGS.PAYSTACK_API_KEY)
 
 
-async def get_transaction(request: Request) -> Transaction:
-    return Transaction(
-        api_key=SETTINGS.PAYSTACK_API_KEY, client=request.app.state.client
-    )
+async def get_transaction() -> Transaction:
+    return Transaction(api_key=SETTINGS.PAYSTACK_API_KEY)
 
 
 async def get_auth_code_service(code_repo: AuthCodeRepo) -> AuthCodeService:
@@ -205,9 +203,9 @@ async def get_credit_service(credit_repo: WalletCreditRepo) -> WalletCreditServi
 
 
 async def get_transaction_service(
-    transaction_repo: TransactionRepo,
+    pool: ThreadPoolDep, transaction_repo: TransactionRepo,
 ) -> TransactionService:
-    return TransactionService(transaction_repo=transaction_repo)
+    return TransactionService(pool=pool, transaction_repo=transaction_repo)
 
 
 async def get_transaction_state_service(
@@ -221,9 +219,9 @@ async def get_webhook_service(webhook_repo: WebhookEventRepo) -> WebhookEventSer
 
 
 async def get_refund_service(
-    pool: ThreadPoolDep, refund_repo: RefundRepo
+    pool: ThreadPoolDep, redis_repo: RedisRepo, refund_repo: RefundRepo
 ) -> RefundService:
-    return RefundService(pool=pool, refund_repo=refund_repo)
+    return RefundService(pool=pool, redis_repo=redis_repo, refund_repo=refund_repo)
 
 
 async def get_refund_state_service(

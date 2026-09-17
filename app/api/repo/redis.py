@@ -1,5 +1,11 @@
+import time
 from redis.asyncio import Redis
 from redis import Redis as SyncRedis
+
+
+LOCK_TTL = 8
+LOCK_TIMEOUT = 10
+LOCK_INTERVAL = 1
 
 
 class RedisRepository:
@@ -16,8 +22,48 @@ class RedisRepository:
     async def delete_key(self, key: str):
         await self._async_redis.delete(key)
 
-    def get_processed_email(self, key: str) -> str | None:
+    async def acquire_lock(self, key: str, token: str, ttl: int = LOCK_TTL):
+        return await self._async_redis.set(key, token, ex=ttl, nx=True)
+
+    async def release_lock(self, key: str, token: str):
+        set_token = await self._async_redis.get(key)
+
+        if token == set_token:
+            await self._async_redis.delete(key)
+
+    async def access_resource(self, key: str, token: str):
+        set_token = await self.acquire_lock(key, token)
+
+        wait_time = 0
+        while not set_token and wait_time < LOCK_TIMEOUT:
+            time.sleep(LOCK_INTERVAL)
+            wait_time += LOCK_INTERVAL
+
+            set_token = self.acquire_lock(key, token)
+        return set_token
+
+    def get_idempotency_key(self, key: str) -> str | None:
         return self._sync_redis.get(key)
 
-    def mark_email_processed(self, key: str, value: str, ttl: int):
+    def mark_idempotency_key(self, key: str, value: str, ttl: int):
         self._sync_redis.set(key, value, ex=ttl)
+
+    def acquire_lock_sync(self, key: str, token: str, ttl: int = LOCK_TTL):
+        return self._sync_redis.set(key, token, ex=ttl, nx=True)
+
+    def release_lock_sync(self, key: str, token: str):
+        set_token = self._sync_redis.get(key)
+
+        if token == set_token:
+            self._sync_redis.delete(key)
+
+    def access_resource_sync(self, key: str, token: str):
+        set_token = self.acquire_lock_sync(key, token)
+
+        wait_time = 0.0
+        while not set_token and wait_time < LOCK_TIMEOUT:
+            time.sleep(LOCK_INTERVAL)
+            wait_time += LOCK_INTERVAL
+
+            set_token = self.acquire_lock_sync(key, token)
+        return set_token

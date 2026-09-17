@@ -31,11 +31,7 @@ class TransactionStateEvent(Base):
             name="state_transaction_id_fk",
         ),
     )
-    from_status: Mapped[enum.Enum | None] = mapped_column(
-        Enum(TransactionStatus, values_callable=lambda e: [m.value for m in e]),
-        default=None,
-    )
-    to_status: Mapped[enum.Enum] = mapped_column(
+    status: Mapped[enum.Enum] = mapped_column(
         Enum(TransactionStatus, values_callable=lambda e: [m.value for m in e])
     )
     source: Mapped[enum.Enum] = mapped_column(
@@ -47,7 +43,7 @@ class TransactionStateEvent(Base):
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name="transaction_state_events_pk"),
-        Index("idx_transaction_state_events_transaction_id", transaction_id),
-        Index("idx_transaction_state_status", from_status, to_status),
         Index("idx_transaction_state_events_occurred_at", occurred_at),
+        Index("idx_transaction_state_events_transaction_id", transaction_id),
+        Index("idx_transaction_state_events_single_row_state", transaction_id, status),
     )

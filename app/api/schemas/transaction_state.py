@@ -11,7 +11,7 @@ class TransactionStateBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     transaction_id: UUID
-    to_status: TransactionStatus
+    status: TransactionStatus
     source: SourceEnum
 
 
@@ -19,10 +19,16 @@ class TransactionStateCreate(TransactionStateBase):
     pass
 
 
+class TransactionStateInDB(TransactionStateBase):
+    id: UUID
+    occurred_at: datetime
+
+
 class TransactionStateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     transaction_id: UUID
-    from_status: TransactionStatus
-    to_status: TransactionStatus
+    status: TransactionStatus
     source: SourceEnum
     occurred_at: datetime

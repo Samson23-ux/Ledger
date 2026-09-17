@@ -29,6 +29,7 @@ from app.api.services.authorization_codes import AuthCodeService
 from app.api.schemas.transaction_state import TransactionStateCreate
 from app.api.repo.transaction_state import TransactionStateRepository
 from app.api.services.transaction_state import TransactionStateService
+from app.worker.tasks.charge_authorization import charge_authorization
 from app.api.schemas.transactions import TransactionCreate, TransactionResponse
 from app.core.exceptions import (
     ServerError,
@@ -62,10 +63,23 @@ class WalletService:
         transaction_repo = self._uow.repo(TransactionRepository)
 
         self._transaction_service = TransactionService(
+            pool=ThreadPool(),
             transaction_repo=transaction_repo
         )
         self._out_box_service = OutBoxService(out_box_repo=out_box_repo)
         self._auth_code_service = AuthCodeService(code_repo=auth_code_repo)
+        self._state_service = TransactionStateService(state_repo=state_repo)
+
+    async def _uow_wallet_callback(self, uow: UnitOfWorkRepository):
+        await self._setup_uow(uow)
+
+        state_repo = self._uow.repo(TransactionStateRepository)
+        transaction_repo = self._uow.repo(TransactionRepository)
+
+        self._transaction_service = TransactionService(
+            pool=ThreadPool(),
+            transaction_repo=transaction_repo
+        )
         self._state_service = TransactionStateService(state_repo=state_repo)
 
     async def _get_transaction_payloads(
@@ -87,25 +101,24 @@ class WalletService:
 
         state_create: TransactionStateCreate = TransactionStateCreate(
             transaction_id=transaction_create.id,
-            to_status="pending",
+            status="pending",
             source="user_action",
         )
 
         return transaction_create, state_create
 
     async def _get_outbox_payload(
-        self, email: str, amount: str, code: str
+        self, email: str, amount: str, code: str, transaction_id: UUID
     ) -> OutBoxCreate:
-        out_box_id = uuid7()
         return OutBoxCreate(
-            id=out_box_id,
+            id=uuid7(),
             event_type="charge_authorization",
             payload={
-                "out_box_id": out_box_id,
                 "email": email,
-                "amount": amount,
+                "amount": str(amount),
                 "currency": "NGN",
                 "authorization_code": code,
+                "transaction_id": str(transaction_id),
             },
         )
 
@@ -206,12 +219,25 @@ class WalletService:
 
             if not initialize:
                 out_box_create = self._get_outbox_payload(
-                    user_email, fund_wallet.amount, auth_code.code
+                    user_email,
+                    fund_wallet.amount,
+                    auth_code.code,
+                    transaction_create.id,
                 )
 
                 await self._out_box_service._create_out_box(out_box_create)
 
-                ###### charge in celery worker
+                charge_authorization.apply_async(
+                    priority=5,
+                    kwargs={
+                        "email": user_email,
+                        "amount": str(fund_wallet.amount),
+                        "currency": "NGN",
+                        "message_id": str(uuid7()),
+                        "transaction_id": str(transaction_create.id),
+                        "authorization_code": auth_code.code,
+                    },
+                )
 
                 transaction_response = TransactionResponse(
                     **transaction_create.model_dump()
@@ -367,13 +393,27 @@ class WalletService:
             raise ServerError() from exc
 
     async def wallet_callback(
-        self, curr_user: User, reference: str, transaction_service: TransactionService
+        self, curr_user: User, reference: str, uow: UnitOfWorkRepository
     ) -> TransactionResponse:
         try:
             user_id = curr_user.id
-            transaction = await transaction_service._get_transaction(
+            await self._uow_wallet_callback(uow)
+
+            transaction = await self._transaction_service._get_transaction(
                 paystack_reference=reference
             )
+
+            transaction.status = "initiated"
+            state_create: TransactionStateCreate = TransactionStateCreate(
+                transaction_id=transaction.id,
+                status="initiated",
+                source="user_action",
+            )
+
+            await self._transaction_service._update_transaction(transaction)
+            await self._state_service._create_transaction_state(state_create)
+
+            await self._uow.commit()
 
             sentry_logger.info(
                 "Transaction retrieved successfully for callback",
@@ -381,6 +421,8 @@ class WalletService:
             )
             return TransactionResponse.model_validate(transaction)
         except Exception as exc:
+            await self._uow.rollback()
+
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
                 "Error occured while retrieving transaction record for callback",

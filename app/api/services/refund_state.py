@@ -16,6 +16,15 @@ class RefundStateService:
     async def _create_refund_state(self, state_create: RefundStateCreate):
         self._state_repo.add(entity=state_create)
 
+    def _get_refund_state_sync(self, **filters):
+        return self._state_repo.get_sync_record(**filters)
+
+    def _create_state_records(self, records: list[dict]):
+        self._state_repo.create_state_records(records)
+
+    def _create_refund_state_sync(self, state_create: RefundStateCreate):
+        return self._state_repo.sync_add(entity=state_create)
+
     async def get_refund_state(
         self, id: UUID, curr_user: User
     ) -> list[RefundStateResponse]:

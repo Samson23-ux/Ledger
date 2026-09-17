@@ -11,7 +11,7 @@ class RefundStateBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     refund_id: UUID
-    to_status: RefundStatus
+    status: RefundStatus
     source: SourceEnum
 
 
@@ -19,10 +19,16 @@ class RefundStateCreate(RefundStateBase):
     pass
 
 
+class RefundStateInDB(RefundStateBase):
+    id: UUID
+    occurred_at: datetime
+
+
 class RefundStateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     refund_id: UUID
-    from_status: RefundStatus
-    to_status: RefundStatus
+    status: RefundStatus
     source: SourceEnum
     occurred_at: datetime

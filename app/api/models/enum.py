@@ -3,16 +3,22 @@ from enum import Enum
 
 class TransactionStatus(str, Enum):
     FAILED = "failed"
+    QUEUED = "queued"
     PENDING = "pending"
+    ONGOING = "ongoing"
     SUCCESS = "success"
     REJECTED = "rejected"
+    REVERSED = "reversed"
+    INITIATED = "initiated"
     ABANDONED = "abandoned"
+    PROCESSING = "processing"
 
 
 class RefundStatus(str, Enum):
     FAILED = "failed"
     PENDING = "pending"
     PROCESSED = "processed"
+    INITIATED = "initiated"
     PROCESSING = "processing"
     NEEDS_ATTENTION = "needs_attention"
 

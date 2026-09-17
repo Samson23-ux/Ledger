@@ -1,6 +1,5 @@
 import sentry_sdk
 from fastapi import FastAPI
-from httpx import Client, Limits
 from contextlib import asynccontextmanager
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -25,25 +24,11 @@ sentry_sdk.init(
 )
 
 
-def raise_for_status_5xx(response):
-    return response.raise_for_status
-
-
-def http_client() -> Client:
-    limits = Limits(
-        max_connections=100, max_keepalive_connections=50, keepalive_expiry=60 * 5
-    )
-    return Client(
-        timeout=10, limits=limits, event_hooks={"response": [raise_for_status_5xx]}
-    )
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await SECURITY.register_oauth()
-    app.state.limiters = {}
 
-    app.state.client = http_client()
+    app.state.limiters = {}
     app.state.redis = redis_client
 
     breaker = CircuitBreaker(redis=RedisRepository(async_redis=redis_client))

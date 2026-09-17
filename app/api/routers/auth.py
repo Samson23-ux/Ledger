@@ -25,7 +25,7 @@ from app.api.schemas.auth import (
     ResendOtp,
     OtpResendResponse,
     LogoutResponse,
-    UserSignUp
+    UserSignUp,
 )
 
 router = APIRouter()
@@ -41,16 +41,12 @@ router = APIRouter()
     ),
 )
 async def sign_up_with_email(
-    request: Request,
+    uow: UnitOfWorkRepo,
     security: SecurityDep,
     sign_up_payload: UserSignUp,
     auth_service: AuthServiceDep,
-    user_service: UserServiceDep,
-    email_service: EmailServiceDep,
 ):
-    await auth_service.sign_up_with_email(
-        sign_up_payload, user_service, email_service, security
-    )
+    await auth_service.sign_up_with_email(sign_up_payload, security, uow)
     return SuccessResponse(
         message=(
             "Sign up completed successfully."
@@ -129,11 +125,9 @@ async def resend_otp(
     request: Request,
     otp_resend: ResendOtp,
     auth_service: AuthServiceDep,
-    user_service: UserServiceDep,
-    email_service: EmailServiceDep,
-    otp_service: OtpServiceDep,
+    uow: UnitOfWorkRepo
 ):
-    await auth_service.resend_otp(otp_resend, user_service, email_service, otp_service)
+    await auth_service.resend_otp(otp_resend, uow)
     return SuccessResponse(
         message="OTP sent successfully. Check your email for instructions"
     )

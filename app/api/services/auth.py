@@ -1,6 +1,8 @@
+import secrets
 import sentry_sdk
 from uuid import uuid7, UUID
 import sentry_sdk.logger as sentry_logger
+from datetime import datetime, timezone, timedelta
 
 from app.api.models.otp import Otp
 from app.util import get_user_email
@@ -10,15 +12,18 @@ from app.core.config import get_settings
 from app.api.repo.otp import OtpRepository
 from app.api.schemas.email import EmailInDB
 from app.api.services.otp import OtpService
+from app.api.services.otp import OtpService
 from app.api.repo.user import UserRepository
 from app.api.services.user import UserService
+from app.api.repo.email import EmailRepository
 from app.api.repo.redis import RedisRepository
 from app.api.services.email import EmailService
+from app.email_texts import verification_message
 from app.api.repo.wallets import WalletRepository
 from app.api.repo.uow import UnitOfWorkRepository
 from app.api.services.wallets import WalletService
 from app.api.services.thread_pool import ThreadPool
-from app.worker.tasks.email import send_verification_email
+from app.worker.tasks.email import send_email
 from app.api.schemas.user import (
     UserInDB,
     EmailUserResponse,
@@ -30,6 +35,7 @@ from app.api.schemas.auth import (
     EmailVerify,
     ResendOtp,
     UserSignUp,
+    OtpInDB
 )
 from app.core.exceptions import (
     UserExistsError,
@@ -67,6 +73,21 @@ class AuthService:
         if with_otp:
             otp_repo = self._uow.repo(OtpRepository)
             self._otp_service = OtpService(otp_repo=otp_repo)
+
+    async def _uow_user_otp_email(
+        self, uow: UnitOfWorkRepository, with_otp: bool = False
+    ):
+        await self._setup_uow(uow)
+
+        otp_repo = self._uow.repo(OtpRepository)
+        user_repo = self._uow.repo(UserRepository)
+        email_repo = self._uow.repo(EmailRepository)
+
+        self._user_service = UserService(
+            user_repo=user_repo, redis_repo=self._redis_repo
+        )
+        self._otp_service = OtpService(otp_repo=otp_repo)
+        self._email_service = EmailService(email_repo=email_repo)
 
     async def _get_tokens(self, email: str, user_type: str, security: Security):
         token_data: TokenData = TokenData(email=email, user_type=user_type)
@@ -116,13 +137,34 @@ class AuthService:
             )
             raise ServerError() from exc
 
+    async def _send_email(self, email_id: UUID, recipient_email: str, user_id: UUID):
+        otp: str = str(secrets.randbelow(900000) + 100000)
+
+        otp_payload: OtpInDB = OtpInDB(
+            otp=otp,
+            user_id=user_id,
+            expires_at=datetime.now(timezone.utc)
+            + timedelta(minutes=self.SETTINGS.OTP_EXPIRE_TIME),
+        )
+        await self._otp_service.create_otp(otp_payload, recipient_email)
+
+        send_email.apply_async(
+            priority=5,
+            kwargs={
+                "email_message": verification_message(otp),
+                "email_id": str(email_id),
+                "recipient_email": recipient_email,
+            },
+        )
+
     async def sign_up_with_email(
         self,
         sign_up_payload: UserSignUp,
-        user_service: UserService,
-        email_service: EmailService,
         security: Security,
+        uow: UnitOfWorkRepository,
     ):
+        await self._uow_user_otp_email(uow)
+
         email_id: UUID = uuid7()
 
         user_email: str = sign_up_payload.email
@@ -130,7 +172,7 @@ class AuthService:
         first_name: str = sign_up_payload.first_name
         hashed_password: str = await security.hash_password(sign_up_payload.password)
 
-        existing_user: User | None = await user_service._get_user_by_email(
+        existing_user: User | None = await self._user_service._get_user_by_email(
             email=user_email
         )
 
@@ -140,21 +182,14 @@ class AuthService:
                 existing_user.first_name = first_name
                 existing_user.hashed_password = hashed_password
 
-                await user_service.update_user(existing_user)
+                await self._user_service.update_user(existing_user)
 
                 email_db: EmailInDB = EmailInDB(
                     id=email_id, processed_email=existing_user.email
                 )
-                await email_service.create_email(email_db)
+                await self._email_service.create_email(email_db)
 
-                send_verification_email.apply_async(
-                    priority=5,
-                    kwargs={
-                        "email_id": email_id,
-                        "recipient_email": existing_user.email,
-                        "user_id": str(existing_user.id),
-                    },
-                )
+                await self._send_email(email_id, existing_user.email, existing_user.id)
             else:
                 sentry_logger.error("User exists with email {email}", email=user_email)
                 raise UserExistsError(user_email=user_email)
@@ -167,19 +202,12 @@ class AuthService:
                 hashed_password=hashed_password,
                 type="email",
             )
-            user: User = await user_service.create_user(user, user_email)
+            user: User = await self._user_service.create_user(user, user_email)
 
             email_db: EmailInDB = EmailInDB(id=email_id, processed_email=user_email)
-            await email_service.create_email(email_db)
+            await self._email_service.create_email(email_db)
 
-            send_verification_email.apply_async(
-                priority=5,
-                kwargs={
-                    "email_id": email_id,
-                    "recipient_email": user_email,
-                    "user_id": str(user.id),
-                },
-            )
+            await self._send_email(email_id, user_email, user.id)
 
         sentry_logger.info(
             "Email and password sign up completed for user {email}",
@@ -287,14 +315,12 @@ class AuthService:
     async def resend_otp(
         self,
         otp_resend: ResendOtp,
-        user_service: UserService,
-        email_service: EmailService,
-        otp_service: OtpService,
+        uow: UnitOfWorkRepository,
     ):
-        self._otp_service = otp_service
+        await self._uow_user_otp_email(uow)
         user_email: str = otp_resend.email
 
-        existing_user: User | None = await user_service._get_user_by_email(
+        existing_user: User | None = await self._user_service._get_user_by_email(
             email=user_email, is_verified=False
         )
 
@@ -315,16 +341,9 @@ class AuthService:
             email_db: EmailInDB = EmailInDB(
                 id=email_id, processed_email=existing_user.email
             )
-            await email_service.create_email(email_db)
+            await self._email_service.create_email(email_db)
 
-            send_verification_email.apply_async(
-                priority=5,
-                kwargs={
-                    "email_id": email_id,
-                    "recipient_email": user_email,
-                    "user_id": str(existing_user.id),
-                },
-            )
+            await self._send_email(email_id, user_email, existing_user.id)
 
             sentry_logger.info(
                 "OTP code resent to user {email}",

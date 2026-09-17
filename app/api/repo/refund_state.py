@@ -1,5 +1,5 @@
 from uuid import UUID
-from sqlalchemy import select
+from sqlalchemy import select, insert
 
 
 from app.api.repo.base import BaseRepository
@@ -38,3 +38,6 @@ class RefundStateRepository(
         stmt = select(self.model).where(self.model.refund_id == id)
         res = await self._async_session.execute(stmt)
         return res.scalars().all()
+
+    def create_state_records(self, records: list[dict]):
+        self.sync_session.execute(insert(self.model), records)

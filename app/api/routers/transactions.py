@@ -14,7 +14,7 @@ from app.deps import (
     TransactionStateServiceDep,
     UnitOfWorkRepo,
     RefundServiceDep,
-    RefundStateServiceDep
+    RefundStateServiceDep,
 )
 
 router = APIRouter()
@@ -33,7 +33,9 @@ async def get_all_transactions(
         str,
         Query(description="Cursor from the last received transactions"),
     ] = None,
-    sort: Annotated[str, Query(description="Sort products by created_at")] = None,
+    sort: Annotated[
+        str, Query(description="Sort transactions by created_at or updated_at")
+    ] = None,
     limit: Annotated[
         int, Query(description="Limit the number of transactions returned")
     ] = 10,
@@ -48,6 +50,43 @@ async def get_all_transactions(
     return AllSuccessResponse(
         message="Transactions retrieved sucessfully",
         data=transactions,
+        cursor=next_cursor,
+    )
+
+
+@router.get(
+    "/transactions/refunds",
+    status_code=200,
+    description="Get all refunds",
+    response_model=AllSuccessResponse[list[RefundResponse]],
+)
+async def get_all_refunds(
+    refund_service: RefundServiceDep,
+    curr_user: CurrentActiveCachedUser,
+    transaction_id: Annotated[
+        UUID, Query(description="Optionally filter by transaction id")
+    ] = None,
+    cursor: Annotated[
+        str,
+        Query(description="Cursor from the last received refunds"),
+    ] = None,
+    sort: Annotated[
+        str, Query(description="Sort refunds by created_at or updated_at")
+    ] = None,
+    limit: Annotated[
+        int, Query(description="Limit the number of refunds returned")
+    ] = 10,
+    order: Annotated[
+        str,
+        Query(description="Order refunds in ascending(asc) or descending(desc)"),
+    ] = "asc",
+):
+    refunds, next_cursor = await refund_service.get_refunds(
+        curr_user, transaction_id, cursor, sort, order, limit
+    )
+    return AllSuccessResponse(
+        message="Refunds retrieved sucessfully",
+        data=refunds,
         cursor=next_cursor,
     )
 
@@ -104,38 +143,6 @@ async def request_for_refund(
 
 
 @router.get(
-    "/transactions/refunds",
-    status_code=200,
-    description="Get all refunds",
-    response_model=AllSuccessResponse[list[RefundResponse]],
-)
-async def get_all_refunds(
-    refund_service: RefundServiceDep,
-    curr_user: CurrentActiveCachedUser,
-    cursor: Annotated[
-        str,
-        Query(description="Cursor from the last received refunds"),
-    ] = None,
-    sort: Annotated[str, Query(description="Sort products by created_at")] = None,
-    limit: Annotated[
-        int, Query(description="Limit the number of refunds returned")
-    ] = 10,
-    order: Annotated[
-        str,
-        Query(description="Order refunds in ascending(asc) or descending(desc)"),
-    ] = "asc",
-):
-    refunds, next_cursor = await refund_service.get_refunds(
-        curr_user, cursor, sort, order, limit
-    )
-    return AllSuccessResponse(
-        message="Refunds retrieved sucessfully",
-        data=refunds,
-        cursor=next_cursor,
-    )
-
-
-@router.get(
     "/transactions/refunds/{id}",
     status_code=200,
     description="Get refund by id",
@@ -147,9 +154,7 @@ async def get_refund(
     curr_user: CurrentActiveCachedUser,
 ):
     refund = await refund_service.get_refund(id, curr_user)
-    return SuccessResponse(
-        message="Refund retrieved sucessfully", data=refund
-    )
+    return SuccessResponse(message="Refund retrieved sucessfully", data=refund)
 
 
 @router.get(
@@ -164,9 +169,7 @@ async def get_refund_state(
     curr_user: CurrentActiveCachedUser,
 ):
     state = await state_service.get_refund_state(id, curr_user)
-    return SuccessResponse(
-        message="Refund state retrieved sucessfully", data=state
-    )
+    return SuccessResponse(message="Refund state retrieved sucessfully", data=state)
 
 
 @router.post(
@@ -182,5 +185,5 @@ async def retry_refund(
     refund_service: RefundServiceDep,
     curr_user: CurrentActiveCachedUser,
 ):
-    await refund_service.retry_refund(id, curr_user, retry_payload, uow)
+    await refund_service.retry_refund_request(id, curr_user, retry_payload, uow)
     return SuccessResponse(message="Refund retried successfully")
