@@ -10,12 +10,12 @@ from app.api.schemas.transactions import TransactionResponse
 from app.api.schemas.wallet_credits import WalletCreditResponse
 from app.api.schemas.response import SuccessResponse, AllSuccessResponse
 from app.deps import (
-    get_default,
+    read_limiter,
     TransactionDep,
     UnitOfWorkRepo,
     WalletServiceDep,
     CircuitBreakerDep,
-    fund_wallet_limiter,
+    write_limiter,
     TransactionServiceDep,
     WalletCreditServiceDep,
     CurrentActiveCachedUser,
@@ -27,7 +27,7 @@ router = APIRouter()
 @router.get(
     "/wallets/me",
     status_code=200,
-    dependencies=[get_default],
+    dependencies=[read_limiter],
     description="Get current user wallet",
     response_model=SuccessResponse[WalletResponse],
 )
@@ -42,7 +42,7 @@ async def get_wallet(
 @router.get(
     "/wallets/me/credits",
     status_code=200,
-    dependencies=[get_default],
+    dependencies=[read_limiter],
     description="Get all wallet credit records",
     response_model=AllSuccessResponse[list[WalletCreditResponse]],
 )
@@ -75,7 +75,7 @@ async def get_wallet_credits(
 @router.get(
     "/wallets/me/credits/{id}",
     status_code=200,
-    dependencies=[get_default],
+    dependencies=[read_limiter],
     description="Get a wallet credit record",
     response_model=SuccessResponse[WalletCreditResponse],
 )
@@ -92,7 +92,7 @@ async def get_wallet_credit(
 @router.get(
     "/wallets/fund/callback",
     status_code=200,
-    dependencies=[get_default],
+    dependencies=[read_limiter],
     description="Callback endpoint after initiating transaction",
     response_model=SuccessResponse[TransactionResponse],
 )
@@ -112,7 +112,7 @@ async def wallet_fund_callback(
 @router.post(
     "/wallets/me/fund",
     status_code=201,
-    dependencies=[fund_wallet_limiter],
+    dependencies=[write_limiter],
     description="Fund existing wallet",
 )
 async def fund_wallet(

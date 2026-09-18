@@ -305,8 +305,8 @@ async def get_cached_current_user(
     user_service: UserServiceDep,
     identity: Annotated[tuple[str, str], Depends(_decode_credentials)],
 ):
-    filters: dict = {}
     user_email, user_type = identity
+    filters: dict = {"user_type": user_type}
 
     if user_type == "email":
         filters["email"] = user_email
@@ -336,20 +336,14 @@ CurrentActiveCachedUser = Annotated[User, Depends(get_current_active_cached_user
 
 
 # ------------------------ Limiter -------------------------------- #
-auth_limiter = Depends(
+write_limiter = Depends(
     _limiter_handler(
-        key=SETTINGS.AUTH_LIMIT_KEY, limit=10, unit="minutes", multiplier=15
+        key=SETTINGS.WRITE_LIMIT_KEY, limit=10, unit="minutes", multiplier=15
     )
 )
 
-get_default = Depends(
+read_limiter = Depends(
     _limiter_handler(
-        key=SETTINGS.AUTH_LIMIT_KEY, limit=10, unit="minutes", multiplier=1
-    )
-)
-
-fund_wallet_limiter = Depends(
-    _limiter_handler(
-        key=SETTINGS.AUTH_LIMIT_KEY, limit=10, unit="minutes", multiplier=15
+        key=SETTINGS.READ_LIMIT_KEY, limit=10, unit="minutes", multiplier=1
     )
 )

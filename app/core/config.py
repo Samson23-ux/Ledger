@@ -65,7 +65,8 @@ class Settings(BaseSettings):
     OTP_EXPIRE_TIME: int = 15
 
     # rate limit keys
-    AUTH_LIMIT_KEY: str = "limiter:auth"
+    READ_LIMIT_KEY: str = "limiter:read"
+    WRITE_LIMIT_KEY: str = "limiter:write"
 
     # paystack
     PAYSTACK_API_KEY: str

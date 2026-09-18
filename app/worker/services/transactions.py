@@ -51,26 +51,28 @@ class TaskTransaction:
             transaction = self._transaction_service._get_transaction_sync(
                 id=transaction_id
             )
-            res = self._gateway.charge_authorization(
-                email, amount, currency, authorization_code
-            )
 
-            transaction.status = "initiated"
-            transaction.paystack_reference = res["data"]["reference"]
-            transaction.updated_at = datetime.now(timezone.utc)
-
-            state_create: TransactionStateCreate = TransactionStateCreate(
-                transaction_id=transaction.id,
-                status="initiated",
-                source="user_action",
-            )
-
-            self._transaction_service._update_transaction_sync(transaction)
-            self._state_service._create_transaction_state_sync(state_create)
-
-            sentry_logger.info(
-                "Transaction charged successfully", extra={"task_id": self.task_id}
-            )
+            if transaction:
+                res = self._gateway.charge_authorization(
+                    email, amount, currency, authorization_code
+                )
+                
+                transaction.status = "initiated"
+                transaction.paystack_reference = res["data"]["reference"]
+                transaction.updated_at = datetime.now(timezone.utc)
+                
+                state_create: TransactionStateCreate = TransactionStateCreate(
+                    transaction_id=transaction.id,
+                    status="initiated",
+                    source="user_action",
+                )
+                
+                self._transaction_service._update_transaction_sync(transaction)
+                self._state_service._create_transaction_state_sync(state_create)
+                
+                sentry_logger.info(
+                    "Transaction charged successfully", extra={"task_id": self.task_id}
+                )
         except Exception as exc:
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
@@ -92,7 +94,7 @@ class TaskRefund:
             pool=ThreadPool(), refund_repo=RefundRepository(sync_session=self._session)
         )
         self._state_service = RefundStateService(
-            refund_repo=RefundStateRepository(sync_session=self._session)
+            state_repo=RefundStateRepository(sync_session=self._session)
         )
 
     def request_refund(
@@ -105,28 +107,29 @@ class TaskRefund:
         merchant_note: str,
     ):
         try:
-            res = self._gateway.request_refund(
-                reference, amount, currency, customer_note, merchant_note
-            )
-
             refund = self._refund_service._get_refund_sync(id=refund_id)
 
-            refund.status = "initiated"
-            refund.paystack_refund_id = res["data"]["id"]
-            refund.updated_at = datetime.now(timezone.utc)
+            if refund:
+                res = self._gateway.request_refund(
+                    reference, amount, currency, customer_note, merchant_note
+                )
 
-            state_create = RefundStateCreate(
-                refund_id=refund_id,
-                status="initiated",
-                source="user_action",
-            )
+                refund.status = "initiated"
+                refund.paystack_refund_id = res["data"]["id"]
+                refund.updated_at = datetime.now(timezone.utc)
 
-            self._refund_service._update_refund_sync(refund)
-            self._state_service._create_refund_state_sync(state_create)
+                state_create = RefundStateCreate(
+                    refund_id=refund_id,
+                    status="initiated",
+                    source="user_action",
+                )
 
-            sentry_logger.info(
-                "Refund requested charged successfully", extra={"task_id": self.task_id}
-            )
+                self._refund_service._update_refund_sync(refund)
+                self._state_service._create_refund_state_sync(state_create)
+
+                sentry_logger.info(
+                    "Refund requested charged successfully", extra={"task_id": self.task_id}
+                )
         except Exception as exc:
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
@@ -145,28 +148,29 @@ class TaskRefund:
         account_number: str,
     ):
         try:
-            res = self._gateway.retry_refund(
-                existing_refund_id, currency, account_number, bank_id
-            )
-
             refund = self._refund_service._get_refund_sync(id=refund_id)
 
-            refund.status = "initiated"
-            refund.paystack_refund_id = res["data"]["id"]
-            refund.updated_at = datetime.now(timezone.utc)
+            if refund:
+                res = self._gateway.retry_refund(
+                    existing_refund_id, currency, account_number, bank_id
+                )
 
-            state_create = RefundStateCreate(
-                refund_id=refund_id,
-                status="initiated",
-                source="user_action",
-            )
+                refund.status = "initiated"
+                refund.paystack_refund_id = res["data"]["id"]
+                refund.updated_at = datetime.now(timezone.utc)
 
-            self._refund_service._update_refund_sync(refund)
-            self._state_service._create_refund_state_sync(state_create)
+                state_create = RefundStateCreate(
+                    refund_id=refund_id,
+                    status="initiated",
+                    source="user_action",
+                )
 
-            sentry_logger.info(
-                "Refund retried successfully", extra={"task_id": self.task_id}
-            )
+                self._refund_service._update_refund_sync(refund)
+                self._state_service._create_refund_state_sync(state_create)
+
+                sentry_logger.info(
+                    "Refund retried successfully", extra={"task_id": self.task_id}
+                )
         except Exception as exc:
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(

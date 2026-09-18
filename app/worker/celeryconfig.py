@@ -16,29 +16,33 @@ queue_arguments = {
 
 task_queues = (
     Queue("ledger.dlq", "ledger.dlx", "dlq"),
-    Queue("ledger.email", "ledger.direct", "email", queue_arguments=queue_arguments),
-    Queue("ledger.transc", "ledger.direct", "transc", queue_arguments=queue_arguments),
-    Queue("ledger.webhooks", "ledger.direct", "webhooks", queue_arguments=queue_arguments),
-    Queue("ledger.outbox", "ledger.direct", "outbox", queue_arguments=queue_arguments),
-    Queue("ledger.reconcile", "ledger.direct", "reconcile", queue_arguments=queue_arguments),
+    Queue("ledger.beat", "ledger.direct", "beat", queue_arguments=queue_arguments),
+    Queue("ledger.celery", "ledger.direct", "celery", queue_arguments=queue_arguments),
 )
 
 task_routes = {
-    "app.worker.tasks.email.send_verification_email": {"queue": "ledger.email"}
+    "app.worker.tasks.email.send_email": {"queue": "ledger.celery"},
+    "app.worker.tasks.outbox.outbox_task": {"queue": "ledger.beat"},
+    "app.worker.tasks.refunds.retry_refund": {"queue": "ledger.celery"},
+    "app.worker.tasks.refunds.request_refund": {"queue": "ledger.celery"},
+    "app.worker.tasks.reconcile_refund.reconcile_refund": {"queue": "ledger.beat"},
+    "app.worker.tasks.webhook_events.process_webhook_events": {"queue": "ledger.celery"},
+    "app.worker.tasks.charge_authorization.charge_authorization": {"queue": "ledger.celery"},
+    "app.worker.tasks.reconcile_transaction.reconcile_transaction": {"queue": "ledger.beat"},
 }
 
 
 beat_schedule = {
     "transc_task": {
-        "task": "",
+        "task": "app.worker.tasks.reconcile_transaction.reconcile_transaction",
         "schedule": crontab(minute="*/3")
     },
     "refund_task": {
-        "task": "",
+        "task": "app.worker.tasks.reconcile_refund.reconcile_refund",
         "schedule": crontab(minute="*/3")
     },
     "outbox_task": {
-        "task": "",
-        "schedule": crontab(minute="*/3")
+        "task": "app.worker.tasks.outbox.outbox_task",
+        "schedule": crontab(minute="*/5")
     }
 }

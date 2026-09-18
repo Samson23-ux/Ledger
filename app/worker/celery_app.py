@@ -14,7 +14,15 @@ sentry_sdk.init(
     profile_lifecycle="trace",
 )
 
-tasks = ["app.worker.tasks.email"]
+tasks = [
+    "app.worker.tasks.email",
+    "app.worker.tasks.outbox",
+    "app.worker.tasks.refunds",
+    "app.worker.tasks.webhook_events",
+    "app.worker.tasks.reconcile_refund",
+    "app.worker.tasks.charge_authorization",
+    "app.worker.tasks.reconcile_transaction"
+]
 
 celery_app = Celery(
     main="celery_app",

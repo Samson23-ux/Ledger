@@ -35,7 +35,7 @@ from app.api.schemas.auth import (
     EmailVerify,
     ResendOtp,
     UserSignUp,
-    OtpInDB
+    OtpInDB,
 )
 from app.core.exceptions import (
     UserExistsError,
@@ -74,9 +74,7 @@ class AuthService:
             otp_repo = self._uow.repo(OtpRepository)
             self._otp_service = OtpService(otp_repo=otp_repo)
 
-    async def _uow_user_otp_email(
-        self, uow: UnitOfWorkRepository, with_otp: bool = False
-    ):
+    async def _uow_user_otp_email(self, uow: UnitOfWorkRepository):
         await self._setup_uow(uow)
 
         otp_repo = self._uow.repo(OtpRepository)
@@ -149,7 +147,7 @@ class AuthService:
         await self._otp_service.create_otp(otp_payload, recipient_email)
 
         send_email.apply_async(
-            priority=5,
+            priority=3,
             kwargs={
                 "email_message": verification_message(otp),
                 "email_id": str(email_id),
@@ -163,101 +161,141 @@ class AuthService:
         security: Security,
         uow: UnitOfWorkRepository,
     ):
-        await self._uow_user_otp_email(uow)
+        try:
+            await self._uow_user_otp_email(uow)
 
-        email_id: UUID = uuid7()
+            email_id: UUID = uuid7()
 
-        user_email: str = sign_up_payload.email
-        last_name: str = sign_up_payload.last_name
-        first_name: str = sign_up_payload.first_name
-        hashed_password: str = await security.hash_password(sign_up_payload.password)
+            user_email: str = sign_up_payload.email
+            last_name: str = sign_up_payload.last_name
+            first_name: str = sign_up_payload.first_name
+            hashed_password: str = await security.hash_password(
+                sign_up_payload.password
+            )
 
-        existing_user: User | None = await self._user_service._get_user_by_email(
-            email=user_email
-        )
+            existing_user: User | None = await self._user_service._get_user_by_email(
+                email=user_email
+            )
 
-        if existing_user:
-            if not existing_user.is_verified:
-                existing_user.last_name = last_name
-                existing_user.first_name = first_name
-                existing_user.hashed_password = hashed_password
+            if existing_user:
+                if not existing_user.is_verified:
+                    existing_user.last_name = last_name
+                    existing_user.first_name = first_name
+                    existing_user.hashed_password = hashed_password
 
-                await self._user_service.update_user(existing_user)
+                    await self._user_service.update_user(existing_user)
 
-                email_db: EmailInDB = EmailInDB(
-                    id=email_id, processed_email=existing_user.email
+                    email_db: EmailInDB = EmailInDB(
+                        id=email_id, processed_email=existing_user.email
+                    )
+                    await self._email_service.create_email(email_db)
+
+                    await self._send_email(
+                        email_id, existing_user.email, existing_user.id
+                    )
+                else:
+                    sentry_logger.error(
+                        "User exists with email {email}", email=user_email
+                    )
+                    raise UserExistsError(user_email=user_email)
+            else:
+                user = UserInDB(
+                    id=uuid7(),
+                    email=user_email,
+                    first_name=first_name,
+                    last_name=last_name,
+                    hashed_password=hashed_password,
+                    type="email",
                 )
+                user: User = await self._user_service.create_user(user, user_email)
+
+                email_db: EmailInDB = EmailInDB(id=email_id, processed_email=user_email)
                 await self._email_service.create_email(email_db)
 
-                await self._send_email(email_id, existing_user.email, existing_user.id)
-            else:
-                sentry_logger.error("User exists with email {email}", email=user_email)
-                raise UserExistsError(user_email=user_email)
-        else:
-            user = UserInDB(
-                id=uuid7(),
+                await self._send_email(email_id, user_email, user.id)
+
+            await self._uow.commit()
+
+            sentry_logger.info(
+                "Email and password sign up completed for user {email}",
                 email=user_email,
-                first_name=first_name,
-                last_name=last_name,
-                hashed_password=hashed_password,
-                type="email",
             )
-            user: User = await self._user_service.create_user(user, user_email)
+        except Exception as exc:
+            if isinstance(exc, UserExistsError):
+                raise UserExistsError(user_email=user_email)
 
-            email_db: EmailInDB = EmailInDB(id=email_id, processed_email=user_email)
-            await self._email_service.create_email(email_db)
+            await self._uow.rollback()
 
-            await self._send_email(email_id, user_email, user.id)
-
-        sentry_logger.info(
-            "Email and password sign up completed for user {email}",
-            email=user_email,
-        )
+            sentry_sdk.capture_exception(exc)
+            sentry_logger.error(
+                "Error occured while creating user",
+            )
+            raise ServerError() from exc
 
     async def sign_up_with_google(
         self, payload: dict, uow: UnitOfWorkRepository, security: Security
     ) -> tuple[str]:
-        await self._uow_user_wallet(uow)
-
-        user_info: dict = payload.get("userinfo")
-
-        google_id: str = user_info.get("sub")
-        user_email: str = user_info.get("email")
-        first_name: str = user_info.get("given_name")
-        last_name: str = user_info.get("family_name")
-
-        existing_user: User | None = await self._user_service._get_user_by_email(
-            google_email=user_email,
-            is_verified=True,
-        )
-
-        if existing_user:
-            existing_user.is_active = True
-            await self._user_service.update_user(existing_user)
-        else:
-            user = UserInDB(
-                id=uuid7(),
-                type="google",
-                is_active=True,
-                is_verified=True,
-                first_name=first_name,
-                last_name=last_name,
-                google_id=google_id,
+        try:
+            user_email = None
+            await self._uow_user_wallet(uow)
+            
+            user_info: dict = payload.get("userinfo")
+            
+            google_id: str = user_info.get("sub")
+            user_email: str = user_info.get("email")
+            first_name: str = user_info.get("given_name")
+            last_name: str = user_info.get("family_name")
+            
+            if not first_name or last_name and user_info.get("name"):
+                parts = user_info["name"].split(" ", 1)
+                first_name = parts[0]
+                last_name = parts[1] if len(parts) > 1 else ""
+            
+            existing_user: User | None = await self._user_service._get_user_by_email(
                 google_email=user_email,
+                is_verified=True,
             )
-            await self._user_service.create_user(user, user_email)
-            await self._wallet_service._create_wallet(user.id)
+            
+            if existing_user:
+                existing_user.is_active = True
+                await self._user_service.update_user(existing_user)
+            else:
+                user = UserInDB(
+                    id=uuid7(),
+                    type="google",
+                    is_active=True,
+                    is_verified=True,
+                    first_name=first_name,
+                    last_name=last_name,
+                    google_id=google_id,
+                    google_email=user_email,
+                )
+                await self._user_service.create_user(user, user_email)
+                await self._wallet_service._create_wallet(user.id)
+            
+            access_token, refresh_token = await self._get_tokens(
+                user_email, "google", security
+            )
+            
+            await self._uow.commit()
+            
+            sentry_logger.info(
+                "Google sign in completed for user {email}",
+                email=user_email,
+            )
+            
+            return access_token, refresh_token
+        except Exception as exc:
+            await self._uow.rollback()
 
-        access_token, refresh_token = await self._get_tokens(
-            user_email, "google", security
-        )
+            email = user_email if user_email else ""
 
-        sentry_logger.info(
-            "Google sign in completed for user {email}",
-            email=user_email,
-        )
-
-        return access_token, refresh_token
+            sentry_sdk.capture_exception(exc)
+            sentry_logger.error(
+                "Error occured while sigining in with google account",
+                extra={"email": email}
+            )
+            raise ServerError() from exc
 
     async def verify_account(
         self,
@@ -345,11 +383,15 @@ class AuthService:
 
             await self._send_email(email_id, user_email, existing_user.id)
 
+            await self._uow.commit()
+
             sentry_logger.info(
                 "OTP code resent to user {email}",
                 email=user_email,
             )
         except Exception as exc:
+            await self._uow.rollback()
+
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
                 "Error occured while resending otp to user {email}",
@@ -380,7 +422,7 @@ class AuthService:
             raise CredentialError()
 
         existing_user.is_active = True
-        await user_service.update_user(existing_user)
+        await user_service.update_user(existing_user, commit=True)
 
         access_token, refresh_token = await self._get_tokens(
             user_email, "email", security
@@ -435,7 +477,7 @@ class AuthService:
         _ = await self._revoke_refresh_token(refresh_token, security)
 
         curr_user.is_active = False
-        await user_service.update_user(curr_user)
+        await user_service.update_user(curr_user, commit=True)
 
         sentry_logger.info(
             "User {email} account logout completed",

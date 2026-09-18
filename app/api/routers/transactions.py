@@ -15,6 +15,8 @@ from app.deps import (
     UnitOfWorkRepo,
     RefundServiceDep,
     RefundStateServiceDep,
+    read_limiter,
+    write_limiter
 )
 
 router = APIRouter()
@@ -25,6 +27,7 @@ router = APIRouter()
     status_code=200,
     description="Get all transactions",
     response_model=AllSuccessResponse[list[TransactionResponse]],
+    dependencies=[read_limiter]
 )
 async def get_all_transactions(
     curr_user: CurrentActiveCachedUser,
@@ -59,6 +62,7 @@ async def get_all_transactions(
     status_code=200,
     description="Get all refunds",
     response_model=AllSuccessResponse[list[RefundResponse]],
+    dependencies=[read_limiter]
 )
 async def get_all_refunds(
     refund_service: RefundServiceDep,
@@ -96,6 +100,7 @@ async def get_all_refunds(
     status_code=200,
     description="Get transaction by id",
     response_model=SuccessResponse[TransactionResponse],
+    dependencies=[read_limiter]
 )
 async def get_transaction(
     id: UUID,
@@ -113,6 +118,7 @@ async def get_transaction(
     status_code=200,
     description="Get transaction state by id",
     response_model=SuccessResponse[list[TransactionStateResponse]],
+    dependencies=[read_limiter]
 )
 async def get_transaction_state(
     id: UUID,
@@ -130,6 +136,7 @@ async def get_transaction_state(
     status_code=201,
     description="Refund request for successful transaction",
     response_model=SuccessResponse,
+    dependencies=[write_limiter]
 )
 async def request_for_refund(
     id: UUID,
@@ -147,6 +154,7 @@ async def request_for_refund(
     status_code=200,
     description="Get refund by id",
     response_model=SuccessResponse[RefundResponse],
+    dependencies=[read_limiter]
 )
 async def get_refund(
     id: UUID,
@@ -162,6 +170,7 @@ async def get_refund(
     status_code=200,
     description="Get refund state by id",
     response_model=SuccessResponse[list[RefundStateResponse]],
+    dependencies=[read_limiter]
 )
 async def get_refund_state(
     id: UUID,
@@ -177,6 +186,7 @@ async def get_refund_state(
     status_code=201,
     description="Provide bank account details to retry refund",
     response_model=SuccessResponse,
+    dependencies=[write_limiter]
 )
 async def retry_refund(
     id: UUID,

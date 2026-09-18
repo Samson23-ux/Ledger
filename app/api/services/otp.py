@@ -31,11 +31,8 @@ class OtpService:
     async def update_otp(self, otp: Otp, email: str) -> Otp:
         try:
             otp: Otp = self._otp_repo.add(model=otp)
-
-            await self._otp_repo.commit()
             return otp
         except Exception as exc:
-            await self._otp_repo.rollback()
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
                 "Error occured while updating otp for user with email {email}",
@@ -47,9 +44,7 @@ class OtpService:
         try:
             email: str = filters["email"]
             await self._otp_repo.update_records(update_values, **filters)
-            await self._otp_repo.commit()
         except Exception as exc:
-            await self._otp_repo.rollback()
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
                 "Error occured while updating otp status for user with email {email}",

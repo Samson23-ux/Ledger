@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request
 
 
-from app.deps import SecurityDep, WebhookEventServiceDep, UnitOfWorkRepo
+from app.deps import SecurityDep, WebhookEventServiceDep, UnitOfWorkRepo, read_limiter
 
 router = APIRouter()
 
@@ -10,6 +10,7 @@ router = APIRouter()
     "/webhooks/paystack",
     status_code=200,
     description="A webhook endpoint to listen for paystack events",
+    dependencies=[read_limiter],
 )
 async def receive_webhook_events(
     request: Request,

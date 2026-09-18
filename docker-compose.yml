@@ -1,0 +1,210 @@
+services:
+  ledger_postgres:
+    image: postgres:18-alpine
+    container_name: ledger_postgres
+    restart: always
+    volumes:
+      - ledger_postgres:/var/lib/postgresql
+    ports:
+      - 5432:5432
+    environment:
+      - POSTGRES_DB=ledger
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d ledger -U postgres -p 5432"]
+      retries: 5
+      timeout: 10s
+      interval: 30s
+      start_period: 30s
+      start_interval: 5s
+
+  ledger_migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: no
+    env_file: .env
+    container_name: ledger_migrate
+    command: alembic upgrade head
+    depends_on:
+      ledger_postgres:
+        condition: service_healthy
+
+  ledger_redis:
+    image: redis:8-alpine
+    container_name: ledger_redis
+    restart: always
+    volumes:
+      - ledger_redis:/var/lib/redis
+    ports:
+      - 6379:6379
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping"]
+      retries: 5
+      timeout: 10s
+      interval: 30s
+      start_period: 30s
+      start_interval: 5s
+
+  ledger_broker:
+    image: rabbitmq:4.0-management-alpine
+    container_name: ledger_broker
+    restart: always
+    volumes:
+      - ledger_broker:/var/lib/rabbitmq
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+      - RABBITMQ_DEFAULT_VHOST=vhost
+    ports:
+      - 5672:5672
+      - 15672:15672
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_running"]
+      retries: 5
+      timeout: 10s
+      interval: 30s
+      start_period: 30s
+      start_interval: 5s
+
+  ledger_pgadmin:
+    image: dpage/pgadmin4
+    container_name: ledger_pgadmin
+    restart: always
+    volumes:
+      - ledger_pgadmin:/var/lib/pgadmin
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@example.com
+      - PGADMIN_DEFAULT_PASSWORD=postgres
+    ports:
+      - 5050:80
+    healthcheck:
+      test: ["CMD-SHELL", "wget -O - -q http://localhost:80/misc/ping"]
+      retries: 5
+      timeout: 10s
+      interval: 30s
+      start_period: 30s
+      start_interval: 5s
+    depends_on:
+      ledger_postgres:
+        condition: service_healthy
+
+  ledger_ngrok:
+    image: ngrok/ngrok:latest
+    container_name: ledger_ngrok
+    restart: always
+    env_file: .env
+    environment:
+      - NGROK_DOMAIN=${NGROK_DOMAIN}
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    command: ["http", "ledger_api:8000", "--url", "${NGROK_URL}"]
+    depends_on:
+      - ledger_api
+
+  ledger_wroker_celery:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    container_name: ledger_wroker_celery
+    volumes:
+      - .:/Ledger
+      - /Ledger/.venv
+    env_file: .env
+    command:
+      ["celery", "-A", "app.worker.celery_app", "worker", "-Q", "ledger.celery", "-P", "gevent", "-l", "info"]
+    depends_on:
+      ledger_postgres:
+        condition: service_healthy
+      ledger_broker:
+        condition: service_healthy
+      ledger_redis:
+        condition: service_healthy
+      ledger_migrate:
+        condition: service_completed_successfully
+
+  ledger_wroker_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    container_name: ledger_wroker_beat
+    volumes:
+      - .:/Ledger
+      - /Ledger/.venv
+    env_file: .env
+    command:
+      ["celery", "-A", "app.worker.celery_app", "worker", "-Q", "ledger.beat", "-P", "gevent", "-l", "info"]
+    depends_on:
+      ledger_postgres:
+        condition: service_healthy
+      ledger_broker:
+        condition: service_healthy
+      ledger_redis:
+        condition: service_healthy
+      ledger_migrate:
+        condition: service_completed_successfully
+
+  ledger_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    container_name: ledger_beat
+    volumes:
+      - .:/Ledger
+      - /Ledger/.venv
+      - beat_data:/Ledger/beat_data
+    env_file: .env
+    command:
+      ["celery", "-A", "app.worker.celery_app", "beat", "-s", "/Ledger/beat_data/celerybeat-schedule", "-l", "info"]
+    depends_on:
+      ledger_postgres:
+        condition: service_healthy
+      ledger_broker:
+        condition: service_healthy
+      ledger_redis:
+        condition: service_healthy
+      ledger_migrate:
+        condition: service_completed_successfully
+
+  ledger_api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    container_name: ledger_api
+    volumes:
+      - .:/Ledger
+      - /Ledger/.venv
+      - pytest_cache:/Cowrite/.pytest_cache
+    env_file: .env
+    ports:
+      - 8000:8000
+    command:
+      ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_running"]
+      retries: 5
+      timeout: 10s
+      interval: 30s
+      start_period: 30s
+      start_interval: 5s
+    depends_on:
+      ledger_postgres:
+        condition: service_healthy
+      ledger_broker:
+        condition: service_healthy
+      ledger_redis:
+        condition: service_healthy
+      ledger_migrate:
+        condition: service_completed_successfully
+
+volumes:
+  ledger_postgres:
+  ledger_redis:
+  ledger_broker:
+  pytest_cache:
+  ledger_pgadmin:
+  beat_data:

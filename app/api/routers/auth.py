@@ -1,6 +1,6 @@
-from uuid import uuid4
 from fastapi.responses import RedirectResponse
 from fastapi import APIRouter, Request, Response
+
 
 from app.core.config import get_settings
 from app.api.schemas.response import SuccessResponse
@@ -14,8 +14,8 @@ from app.deps import (
     UserServiceDep,
     CurrentActiveUser,
     UnitOfWorkRepo,
-    EmailServiceDep,
-    OtpServiceDep,
+    read_limiter,
+    write_limiter,
 )
 from app.api.schemas.auth import (
     SignUpResponse,
@@ -39,6 +39,7 @@ router = APIRouter()
         "Sign up with email and password."
         "A verification code is sent to the user's email on completion"
     ),
+    dependencies=[write_limiter],
 )
 async def sign_up_with_email(
     uow: UnitOfWorkRepo,
@@ -60,6 +61,7 @@ async def sign_up_with_email(
     status_code=302,
     response_class=RedirectResponse,
     description="Sign in with Google account",
+    dependencies=[write_limiter],
 )
 async def sign_in_with_google(request: Request, security: SecurityDep):
     redirect_uri = request.url_for("google_callback")
@@ -72,6 +74,7 @@ async def sign_in_with_google(request: Request, security: SecurityDep):
     status_code=200,
     response_model=SuccessResponse[Token],
     description="Google redirect uri",
+    dependencies=[write_limiter],
 )
 async def google_callback(
     request: Request,
@@ -104,6 +107,7 @@ async def google_callback(
     status_code=200,
     response_model=SuccessResponse[EmailUserResponse],
     description="Verify account by submitting the received otp code",
+    dependencies=[write_limiter],
 )
 async def verify_account(
     request: Request,
@@ -120,12 +124,13 @@ async def verify_account(
     status_code=201,
     description="Resend verification code",
     response_model=SuccessResponse[OtpResendResponse],
+    dependencies=[write_limiter],
 )
 async def resend_otp(
     request: Request,
     otp_resend: ResendOtp,
     auth_service: AuthServiceDep,
-    uow: UnitOfWorkRepo
+    uow: UnitOfWorkRepo,
 ):
     await auth_service.resend_otp(otp_resend, uow)
     return SuccessResponse(
@@ -138,6 +143,7 @@ async def resend_otp(
     status_code=201,
     description="Login with email and password",
     response_model=SuccessResponse[Token],
+    dependencies=[write_limiter],
 )
 async def login(
     request: Request,
@@ -170,6 +176,7 @@ async def login(
     status_code=201,
     response_model=SuccessResponse[Token],
     description="Create new access token for user with a valid refresh token",
+    dependencies=[write_limiter],
 )
 async def create_new_token(
     request: Request,
@@ -201,6 +208,7 @@ async def create_new_token(
     status_code=200,
     description="Get current active user",
     response_model=SuccessResponse[EmailUserResponse | GoogleUserResponse],
+    dependencies=[read_limiter],
 )
 async def get_current_user(
     request: Request,
@@ -218,6 +226,7 @@ async def get_current_user(
     status_code=201,
     response_model=SuccessResponse[LogoutResponse],
     description="Log out account",
+    dependencies=[write_limiter],
 )
 async def log_out(
     request: Request,
@@ -231,7 +240,12 @@ async def log_out(
     return SuccessResponse(message="Log out completed successfully")
 
 
-@router.delete("/auth", status_code=204, description="Delete account permanently")
+@router.delete(
+    "/auth",
+    status_code=204,
+    description="Delete account permanently",
+    dependencies=[write_limiter],
+)
 async def delete_account(
     request: Request,
     security: SecurityDep,

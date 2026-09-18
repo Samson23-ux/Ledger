@@ -18,8 +18,8 @@ class UserService:
         self._redis_repo = redis_repo
 
     @staticmethod
-    def _user_cache_key(email: str) -> str:
-        return f"user:{email}"
+    def _user_cache_key(email: str, user_type: str) -> str:
+        return f"user:{email}:{user_type}"
 
     async def get_user_by_email(self, **filters) -> User:
         if "email" in filters:
@@ -51,16 +51,24 @@ class UserService:
     async def _get_user_by_email(self, **filters) -> User | None:
         return await self._user_repo.get_record(**filters)
 
-    async def create_user(self, user: UserInDB, email: str) -> User:
+    async def create_user(
+        self, user: UserInDB, email: str, commit: bool = False
+    ) -> User:
         try:
             user: User = self._user_repo.add(entity=user)
 
-            await self._user_repo.commit()
-            await self._user_repo.refresh(user)
+            if commit:
+                await self._user_repo.commit()
+                await self._user_repo.refresh(user)
+            else:
+                await self._user_repo.flush()
+                await self._user_repo.refresh(user)
 
             return user
         except Exception as exc:
-            await self._user_repo.rollback()
+            if commit:
+                await self._user_repo.rollback()
+
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
                 "Error occured while creating user with email {email}", email=email
@@ -68,11 +76,8 @@ class UserService:
             raise ServerError() from exc
 
     async def get_cached_user(self, **filters) -> User | None:
-        user_email: str = (
-            filters.get("email")
-            or filters.get("google_email")
-        )
-        cache_key: str = self._user_cache_key(user_email)
+        user_email: str = filters.get("email") or filters.get("google_email")
+        cache_key: str = self._user_cache_key(user_email, filters.get("user_type"))
 
         cached: dict = await self._redis_repo.get_hset(cache_key)
 
@@ -92,29 +97,41 @@ class UserService:
         value: dict = _serialize_user(user)
 
         if user.email:
-            await self._redis_repo.create_hset(self._user_cache_key(user.email), value)
+            await self._redis_repo.create_hset(
+                self._user_cache_key(user.email, "email"), value
+            )
         if user.google_email:
             await self._redis_repo.create_hset(
-                self._user_cache_key(user.google_email), value
+                self._user_cache_key(user.google_email, "google"), value
             )
 
     async def invalidate_user_cache(self, user: User):
         if user.email:
-            await self._redis_repo.delete_key(self._user_cache_key(user.email))
+            await self._redis_repo.delete_key(self._user_cache_key(user.email, "email"))
         if user.google_email:
-            await self._redis_repo.delete_key(self._user_cache_key(user.google_email))
+            await self._redis_repo.delete_key(
+                self._user_cache_key(user.google_email, "google")
+            )
 
-    async def update_user(self, user: User) -> User:
+    async def update_user(self, user: User, commit: bool = False) -> User:
         try:
             user_email: str = user.email
             user: User = self._user_repo.add(model=user)
-            await self._user_repo.commit()
-            await self._user_repo.refresh(user)
+
+            if commit:
+                await self._user_repo.commit()
+                await self._user_repo.refresh(user)
+            else:
+                await self._user_repo.flush()
+                await self._user_repo.refresh(user)
+
             await self.cache_user(user)
 
             return user
         except Exception as exc:
-            await self._user_repo.rollback()
+            if commit:
+                await self._user_repo.rollback()
+
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
                 "Error occured while updating user with email {email}", email=user_email

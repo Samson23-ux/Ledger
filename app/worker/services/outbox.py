@@ -143,7 +143,8 @@ class OutBoxTask:
                 outbox.processed_at = datetime.now(timezone)
                 updated_records.append(OutBoxInDB.model_validate(outbox))
 
-            self._outbox_service._update_outbox_records(updated_records)
+            if outbox_records:
+                self._outbox_service._update_outbox_records(updated_records)
         except Exception as exc:
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(

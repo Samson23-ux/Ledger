@@ -14,12 +14,16 @@ class EmailService:
         self._api_key = None
         self._email_repo = email_repo
 
-    async def create_email(self, email_payload: EmailInDB):
+    async def create_email(self, email_payload: EmailInDB, commit: bool = False):
         try:
             self._email_repo.add(entity=email_payload)
-            await self._email_repo.commit()
+
+            if commit:
+                await self._email_repo.commit()
         except Exception as exc:
-            await self._email_repo.rollback()
+            if commit:
+                await self._email_repo.rollback()
+
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
                 "Error occured while creating email record",

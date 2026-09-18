@@ -31,8 +31,8 @@ class RefundService:
     def __init__(
         self,
         pool: ThreadPool,
-        redis_repo: RedisRepository,
         refund_repo: RefundRepository,
+        redis_repo: RedisRepository = None,
     ):
         self._pool = pool
         self._redis_repo = redis_repo

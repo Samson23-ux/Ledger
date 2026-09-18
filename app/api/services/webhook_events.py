@@ -142,7 +142,7 @@ class WebhookEventService:
 
                     await self._out_box_service._create_out_box(outbox_create)
                     process_webhook_events.apply_async(
-                        priority=5, kwargs={"payload": task_payload}
+                        priority=8, kwargs={"payload": task_payload}
                     )
 
             sentry_logger.info(
