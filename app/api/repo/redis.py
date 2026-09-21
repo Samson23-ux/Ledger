@@ -19,6 +19,12 @@ class RedisRepository:
     async def get_hset(self, key: str) -> dict:
         return await self._async_redis.hgetall(key)
 
+    def create_hset_sync(self, key: str, value: dict):
+        self._sync_redis.hset(key, mapping=value)
+
+    def get_hset_sync(self, key: str) -> dict:
+        return self._sync_redis.hgetall(key)
+
     async def set_key(self, key: str, value: str, ttl: int):
         await self._async_redis.set(key, value, ex=ttl)
 

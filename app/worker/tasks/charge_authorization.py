@@ -10,6 +10,7 @@ from app.core.config import get_settings
 from app.worker.celery_app import celery_app
 from app.core.exceptions import MaxRetriesError
 from app.worker.tasks.base import BaseTaskWithFailure
+from app.api.services.circuit_breaker import CircuitBreaker
 from app.worker.core import get_redis_repo, get_db_session
 from app.worker.services.transactions import TaskTransaction
 
@@ -27,10 +28,22 @@ def charge_authorization(
     transaction_id: str,
     authorization_code: str,
 ):
-    try:
-        task_id = self.request.id
+    task_id = self.request.id
+    redis_repo = get_redis_repo()
 
-        redis_repo = get_redis_repo()
+    # checked before touching the DB/lock at all - if paystack is already
+    # known to be down, don't spend a lock acquisition and a DB round trip
+    # attempting a call that's going to fail anyway
+    circuit = CircuitBreaker(redis=redis_repo)
+    state = circuit.check_sync()
+    if not state["is_healthy"]:
+        sentry_logger.info(
+            "Paystack circuit open, rejecting without attempting the call",
+            extra={"task_id": task_id, "retry_after": state["retry_after"]},
+        )
+        raise Reject(reason=f"Paystack circuit open until {state['retry_after']}")
+
+    try:
         session = next(get_db_session())
 
         task_transaction = TaskTransaction(task_id, session)
@@ -48,6 +61,7 @@ def charge_authorization(
                 email, amount, currency, authorization_code, transaction_id, out_box_id
             )
             session.commit()
+            circuit.record_success_sync()
 
             redis_repo.release_lock_sync(f"charge:{transaction_id}", resource_token)
             redis_repo.mark_idempotency_key(
@@ -65,6 +79,9 @@ def charge_authorization(
         PaystackException.ServiceException,
         psycopg2.extensions.TransactionRollbackError,
     ) as exc:
+        if isinstance(exc, PaystackException.ServiceException):
+            circuit.record_failure_sync()
+
         try:
             session.rollback()
 

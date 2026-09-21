@@ -31,6 +31,18 @@ services:
       ledger_postgres:
         condition: service_healthy
 
+  ledger_declare_queues:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: no
+    env_file: .env
+    container_name: ledger_declare_queues
+    command: python -m app.worker.declare_queues
+    depends_on:
+      ledger_broker:
+        condition: service_healthy
+
   ledger_redis:
     image: redis:8-alpine
     container_name: ledger_redis
@@ -101,6 +113,8 @@ services:
         condition: service_healthy
       ledger_migrate:
         condition: service_completed_successfully
+      ledger_declare_queues:
+        condition: service_completed_successfully
 
   ledger_wroker_beat:
     build:
@@ -122,6 +136,8 @@ services:
       ledger_redis:
         condition: service_healthy
       ledger_migrate:
+        condition: service_completed_successfully
+      ledger_declare_queues:
         condition: service_completed_successfully
 
   ledger_beat:
@@ -145,6 +161,8 @@ services:
       ledger_redis:
         condition: service_healthy
       ledger_migrate:
+        condition: service_completed_successfully
+      ledger_declare_queues:
         condition: service_completed_successfully
 
   ledger_api:

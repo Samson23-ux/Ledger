@@ -2,12 +2,14 @@ import sentry_sdk
 from uuid import uuid4
 from sqlalchemy.orm import Session
 import sentry_sdk.logger as sentry_logger
+from paystack import exceptions as PaystackException
 
 
 from app.worker import get_redis_repo
 from app.api.repo.outbox import OutBoxRepository
 from app.api.services.outbox import OutBoxService
 from app.worker.services.webhooks import TaskWebhook
+from app.api.services.circuit_breaker import CircuitBreaker
 from app.worker.services.transactions import TaskRefund, TaskTransaction
 
 
@@ -17,6 +19,7 @@ class OutBoxTask:
 
         self._session = session
         self._redis_repo = get_redis_repo()
+        self._circuit = CircuitBreaker(redis=self._redis_repo)
 
         self._task_refund = TaskRefund(self.task_id, self._session)
         self._task_webhook = TaskWebhook(self.task_id, self._session)
@@ -26,7 +29,26 @@ class OutBoxTask:
             out_box_repo=OutBoxRepository(sync_session=self._session)
         )
 
+    def _paystack_unavailable(self, state: dict) -> bool:
+        if state["is_healthy"]:
+            return False
+
+        # this is a per-row check inside a batch poll, not a standalone task
+        # dispatch - skip this row and leave it pending for the next poll
+        # rather than rejecting the whole batch, since unrelated rows
+        # (a different event type, or one that doesn't call Paystack at all)
+        # shouldn't be held up by one row's outage.
+        sentry_logger.info(
+            "Paystack circuit open, leaving outbox row pending rather than "
+            "attempting the call",
+            extra={"task_id": self.task_id, "retry_after": state["retry_after"]},
+        )
+        return True
+
     def outbox_charge_authorization(self, out_box_id, payload: dict):
+        if self._paystack_unavailable(self._circuit.check_sync()):
+            return
+
         email = payload.get("email")
         amount = payload.get("amount")
         currency = payload.get("currency")
@@ -39,18 +61,32 @@ class OutBoxTask:
         )
 
         if resource:
-            self._task_transaction.charge_authorization(
-                email,
-                amount,
-                currency,
-                authorization_code,
-                transaction_id,
-                out_box_id,
-            )
+            try:
+                self._task_transaction.charge_authorization(
+                    email,
+                    amount,
+                    currency,
+                    authorization_code,
+                    transaction_id,
+                    out_box_id,
+                )
+                self._circuit.record_success_sync()
+            except Exception as exc:
+                self._session.rollback()
 
-            self._redis_repo.release_lock_sync(
-                f"charge:{transaction_id}", resource_token
-            )
+                if isinstance(exc, PaystackException.ServiceException):
+                    self._circuit.record_failure_sync()
+
+                sentry_sdk.capture_exception(exc)
+                sentry_logger.error(
+                    "Error occured while charging authorization from outbox "
+                    "poller",
+                    extra={"task_id": self.task_id, "transaction_id": transaction_id},
+                )
+            finally:
+                self._redis_repo.release_lock_sync(
+                    f"charge:{transaction_id}", resource_token
+                )
         else:
             sentry_logger.info(
                 "Lock not obtained for outbox charge authorization task - leaving "
@@ -60,6 +96,9 @@ class OutBoxTask:
             )
 
     def outbox_request_refund(self, out_box_id, payload: dict):
+        if self._paystack_unavailable(self._circuit.check_sync()):
+            return
+
         amount = payload.get("amount")
         currency = payload.get("currency")
         reference = payload.get("reference")
@@ -73,19 +112,32 @@ class OutBoxTask:
         )
 
         if resource:
-            self._task_refund.request_refund(
-                amount,
-                currency,
-                refund_id,
-                reference,
-                customer_note,
-                merchant_note,
-                out_box_id,
-            )
+            try:
+                self._task_refund.request_refund(
+                    amount,
+                    currency,
+                    refund_id,
+                    reference,
+                    customer_note,
+                    merchant_note,
+                    out_box_id,
+                )
+                self._circuit.record_success_sync()
+            except Exception as exc:
+                self._session.rollback()
 
-            self._redis_repo.release_lock_sync(
-                f"refund:{refund_id}:request", resource_token
-            )
+                if isinstance(exc, PaystackException.ServiceException):
+                    self._circuit.record_failure_sync()
+
+                sentry_sdk.capture_exception(exc)
+                sentry_logger.error(
+                    "Error occured while requesting refund from outbox poller",
+                    extra={"task_id": self.task_id, "refund_id": refund_id},
+                )
+            finally:
+                self._redis_repo.release_lock_sync(
+                    f"refund:{refund_id}:request", resource_token
+                )
         else:
             sentry_logger.info(
                 "Lock not obtained for outbox request refund task - leaving the "
@@ -95,6 +147,9 @@ class OutBoxTask:
             )
 
     def outbox_retry_refund(self, out_box_id, payload: dict):
+        if self._paystack_unavailable(self._circuit.check_sync()):
+            return
+
         bank_id = payload.get("bank_id")
         currency = payload.get("currency")
         refund_id = payload.get("refund_id")
@@ -116,6 +171,7 @@ class OutBoxTask:
                     account_number,
                     out_box_id,
                 )
+                self._circuit.record_success_sync()
             except Exception as exc:
                 # a failed Paystack call here (network hiccup, transient
                 # 5xx/retryable 4xx, ...) shouldn't take down the rest of
@@ -124,6 +180,10 @@ class OutBoxTask:
                 # the next one. Leave this row pending - the next poll (or
                 # the original task's own retry) picks it back up.
                 self._session.rollback()
+
+                if isinstance(exc, PaystackException.ServiceException):
+                    self._circuit.record_failure_sync()
+
                 sentry_sdk.capture_exception(exc)
                 sentry_logger.error(
                     "Error occured while retrying refund from outbox poller",

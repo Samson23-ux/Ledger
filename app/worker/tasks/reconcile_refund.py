@@ -1,6 +1,7 @@
 import psycopg2
 import sentry_sdk
 from celery.exceptions import Reject
+import sentry_sdk.logger as sentry_logger
 from paystack import exceptions as PaystackException
 
 
@@ -9,6 +10,7 @@ from app.worker.celery_app import celery_app
 from app.worker.tasks.email import send_email
 from app.core.exceptions import MaxRetriesError
 from app.worker.tasks.base import BaseTaskWithFailure
+from app.api.services.circuit_breaker import CircuitBreaker
 from app.worker.core import get_redis_repo, get_db_session
 from app.worker.services.reconciliation import ReconcileRefund
 
@@ -17,10 +19,19 @@ SETTINGS = get_settings()
 
 @celery_app.task(bind=True, base=BaseTaskWithFailure)
 def reconcile_refund(self):
-    try:
-        task_id = self.request.id
+    task_id = self.request.id
+    redis_repo = get_redis_repo()
 
-        redis_repo = get_redis_repo()
+    circuit = CircuitBreaker(redis=redis_repo)
+    state = circuit.check_sync()
+    if not state["is_healthy"]:
+        sentry_logger.info(
+            "Paystack circuit open, rejecting without attempting the call",
+            extra={"task_id": task_id, "retry_after": state["retry_after"]},
+        )
+        raise Reject(reason=f"Paystack circuit open until {state['retry_after']}")
+
+    try:
         session = next(get_db_session())
 
         reconcile = ReconcileRefund(task_id, session)
@@ -32,6 +43,7 @@ def reconcile_refund(self):
         if not idempotency_key:
             email_payload = reconcile.reconciliation()
             session.commit()
+            circuit.record_success_sync()
 
             if email_payload:
                 send_email.apply_async(priority=3, kwargs=email_payload)
@@ -45,6 +57,9 @@ def reconcile_refund(self):
         PaystackException.ServiceException,
         psycopg2.extensions.TransactionRollbackError,
     ) as exc:
+        if isinstance(exc, PaystackException.ServiceException):
+            circuit.record_failure_sync()
+
         try:
             session.rollback()
 

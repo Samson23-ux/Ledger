@@ -10,6 +10,7 @@ from app.core.config import get_settings
 from app.worker.celery_app import celery_app
 from app.core.exceptions import MaxRetriesError
 from app.worker.tasks.base import BaseTaskWithFailure
+from app.api.services.circuit_breaker import CircuitBreaker
 from app.worker.core import get_redis_repo, get_db_session
 
 SETTINGS = get_settings()
@@ -27,12 +28,21 @@ def request_refund(
     customer_note: str,
     merchant_note: str,
 ):
+    task_id = self.request.id
+    redis_repo = get_redis_repo()
+
+    circuit = CircuitBreaker(redis=redis_repo)
+    state = circuit.check_sync()
+    if not state["is_healthy"]:
+        sentry_logger.info(
+            "Paystack circuit open, rejecting without attempting the call",
+            extra={"task_id": task_id, "retry_after": state["retry_after"]},
+        )
+        raise Reject(reason=f"Paystack circuit open until {state['retry_after']}")
+
     try:
         from app.worker.services.transactions import TaskRefund
 
-        task_id = self.request.id
-
-        redis_repo = get_redis_repo()
         session = next(get_db_session())
 
         task_refund = TaskRefund(task_id, session)
@@ -56,6 +66,7 @@ def request_refund(
                 out_box_id,
             )
             session.commit()
+            circuit.record_success_sync()
 
             redis_repo.release_lock_sync(f"refund:{refund_id}:request", resource_token)
             redis_repo.mark_idempotency_key(
@@ -73,6 +84,9 @@ def request_refund(
         PaystackException.ServiceException,
         psycopg2.extensions.TransactionRollbackError,
     ) as exc:
+        if isinstance(exc, PaystackException.ServiceException):
+            circuit.record_failure_sync()
+
         try:
             session.rollback()
 
@@ -102,12 +116,21 @@ def retry_refund(
     account_number: str,
     bank_id: str,
 ):
+    task_id = self.request.id
+    redis_repo = get_redis_repo()
+
+    circuit = CircuitBreaker(redis=redis_repo)
+    state = circuit.check_sync()
+    if not state["is_healthy"]:
+        sentry_logger.info(
+            "Paystack circuit open, rejecting without attempting the call",
+            extra={"task_id": task_id, "retry_after": state["retry_after"]},
+        )
+        raise Reject(reason=f"Paystack circuit open until {state['retry_after']}")
+
     try:
         from app.worker.services.transactions import TaskRefund
 
-        task_id = self.request.id
-
-        redis_repo = get_redis_repo()
         session = next(get_db_session())
 
         task_refund = TaskRefund(task_id, session)
@@ -130,6 +153,7 @@ def retry_refund(
                 out_box_id,
             )
             session.commit()
+            circuit.record_success_sync()
 
             redis_repo.release_lock_sync(f"refund:{refund_id}:retry", resource_token)
             redis_repo.mark_idempotency_key(
@@ -147,6 +171,9 @@ def retry_refund(
         PaystackException.ServiceException,
         psycopg2.extensions.TransactionRollbackError,
     ) as exc:
+        if isinstance(exc, PaystackException.ServiceException):
+            circuit.record_failure_sync()
+
         try:
             session.rollback()
 
