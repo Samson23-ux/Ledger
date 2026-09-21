@@ -6,6 +6,7 @@ from paystack import exceptions as PaystackException
 
 from app.core.config import get_settings
 from app.worker.celery_app import celery_app
+from app.worker.tasks.email import send_email
 from app.core.exceptions import MaxRetriesError
 from app.worker.services.outbox import OutBoxTask
 from app.worker.tasks.base import BaseTaskWithFailure
@@ -27,13 +28,16 @@ def outbox_task(self):
 
         if not idempotency_key:
             outbox = OutBoxTask(task_id, session)
-            outbox.process_outbox_task()
+            email_payload = outbox.process_outbox_task()
+
+            session.commit()
+
+            if email_payload:
+                send_email.apply_async(priority=3, kwargs=email_payload)
 
             redis_repo.mark_idempotency_key(
                 f"outbox:{task_id}", "1", SETTINGS.IDEMPOTENCY_KEY_TTL
             )
-
-            session.commit()
     except (
         psycopg2.InternalError,
         psycopg2.InterfaceError,

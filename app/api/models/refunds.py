@@ -71,8 +71,8 @@ class Refund(Base):
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name="refunds_pk"),
-        Index("idx_refunds_composite", user_id, id, status),
+        Index("idx_refunds_user_id", user_id),
         Index("idx_refunds_created_at", created_at),
         Index("idx_refunds_updated_at", updated_at),
-        Index("idx_refunds_payment_transaction_id_&_id", payment_transaction_id, id),
+        Index("idx_refunds_payment_transaction_id", payment_transaction_id),
     )

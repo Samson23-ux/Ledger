@@ -19,6 +19,7 @@ class TransactionBase(BaseModel):
     paystack_reference: Optional[str] = None
     amount: Decimal
     channel: ChannelEnum
+    created_at: datetime
 
 
 class TransactionCreate(TransactionBase):
@@ -35,7 +36,6 @@ class TransactionInDB(TransactionBase):
     card_expires_at: Optional[datetime] = None
     paid_at: Optional[datetime] = None
     wallet_credited: bool
-    created_at: datetime
     updated_at: datetime
 
 

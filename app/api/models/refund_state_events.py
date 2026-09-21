@@ -43,6 +43,5 @@ class RefundStateEvent(Base):
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name="refund_state_events_pk"),
-        Index("idx_refund_state_events_refund_id", refund_id, status),
-        Index("idx_refund_state_events_occurred_at", occurred_at),
+        Index("idx_refund_state_events_refund_id", refund_id),
     )

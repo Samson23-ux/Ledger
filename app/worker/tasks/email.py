@@ -20,6 +20,7 @@ RESEND_API_KEY = SETTINGS.RESEND_API_KEY
 @celery_app.task(base=BaseTaskWithFailure, bind=True)
 def send_email(
     self,
+    email_subject: str,
     email_message: str,
     email_id: UUID,
     recipient_email: str,
@@ -38,7 +39,7 @@ def send_email(
             email_service.send(
                 SENDER_EMAIL,
                 recipient_email,
-                "Email Verification Code",
+                email_subject,
                 email_message,
             )
 

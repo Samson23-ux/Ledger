@@ -23,8 +23,8 @@ class WebhookEvent(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID, server_default=text("uuid_generate_v7()")
     )
-    paystack_data_id: Mapped[int | None] = mapped_column(BigInteger, unique=True)
-    paystack_reference: Mapped[str | None] = mapped_column(Text, unique=True)
+    paystack_data_id: Mapped[int | None] = mapped_column(BigInteger)
+    paystack_reference: Mapped[str | None] = mapped_column(Text)
     event_type: Mapped[str] = mapped_column(Text)
     payload: Mapped[dict] = mapped_column(JSONB)
     signature_verified: Mapped[bool] = mapped_column(Boolean)

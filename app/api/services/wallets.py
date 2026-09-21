@@ -1,8 +1,8 @@
 import sentry_sdk
 from uuid import UUID, uuid7
 import sentry_sdk.logger as sentry_logger
-from datetime import datetime, timezone, timedelta
 from paystack import exceptions as PaystackException
+from datetime import date, datetime, timezone, timedelta
 
 
 from app.util import get_user_email
@@ -34,9 +34,16 @@ from app.api.schemas.transactions import TransactionCreate, TransactionResponse
 from app.core.exceptions import (
     ServerError,
     ServiceUnavailable,
+    AuthenticationError,
     WalletCreditNotFoundError,
     WalletCreditsNotFoundError,
 )
+
+FUND_CALLBACK_TTL = 60 * 60 * 24  # 1 day
+
+
+def _fund_callback_key(reference: str, user_id: UUID) -> str:
+    return f"wallet_fund_callback:{reference}:{user_id}"
 
 
 class WalletService:
@@ -97,6 +104,7 @@ class WalletService:
             wallet_id=wallet_id,
             amount=amount,
             channel=channel,
+            created_at=datetime.now(timezone.utc)
         )
 
         state_create: TransactionStateCreate = TransactionStateCreate(
@@ -108,10 +116,15 @@ class WalletService:
         return transaction_create, state_create
 
     async def _get_outbox_payload(
-        self, email: str, amount: str, code: str, transaction_id: UUID
+        self,
+        out_box_id: UUID,
+        email: str,
+        amount: str,
+        code: str,
+        transaction_id: UUID,
     ) -> OutBoxCreate:
         return OutBoxCreate(
-            id=uuid7(),
+            id=out_box_id,
             event_type="charge_authorization",
             payload={
                 "email": email,
@@ -179,17 +192,20 @@ class WalletService:
                 )
 
                 if auth_code:
-                    now = datetime.now(timezone.utc)
                     exp_year, exp_month = int(auth_code.exp_year), int(
                         auth_code.exp_month
                     )
 
+                    # a card is valid through the end of its expiry month
+                    if exp_month == 12:
+                        expires_at = date(exp_year + 1, 1, 1)
+                    else:
+                        expires_at = date(exp_year, exp_month + 1, 1)
+
+                    today = datetime.now(timezone.utc).date()
+
                     # check usability and validity
-                    if (
-                        auth_code.reusable
-                        and exp_year <= now.year
-                        and exp_month < now.month
-                    ):
+                    if auth_code.reusable and today < expires_at:
                         initialize = False
 
             if initialize:
@@ -203,7 +219,7 @@ class WalletService:
                 initialization = await self._pool.run_in_pool(
                     gateway.initialize_transaction,
                     email=user_email,
-                    amount=fund_wallet.amount,
+                    amount=str(fund_wallet.amount),
                     currency="NGN",
                     channel=fund_wallet.channel,
                 )
@@ -211,6 +227,14 @@ class WalletService:
                 transaction_create.paystack_reference = initialization["data"][
                     "reference"
                 ]
+
+                await self._redis_repo.set_key(
+                    _fund_callback_key(
+                        transaction_create.paystack_reference, user_id
+                    ),
+                    str(user_id),
+                    FUND_CALLBACK_TTL,
+                )
             else:
                 transaction_create.authorization_code = auth_code.code
 
@@ -218,7 +242,9 @@ class WalletService:
             await self._state_service._create_transaction_state(state_create)
 
             if not initialize:
-                out_box_create = self._get_outbox_payload(
+                out_box_id: UUID = uuid7()
+                out_box_create = await self._get_outbox_payload(
+                    out_box_id,
                     user_email,
                     fund_wallet.amount,
                     auth_code.code,
@@ -227,9 +253,21 @@ class WalletService:
 
                 await self._out_box_service._create_out_box(out_box_create)
 
+                transaction_response = TransactionResponse(
+                    **transaction_create.model_dump()
+                )
+
+            await self._uow.commit()
+
+            if not initialize:
+                # only dispatch once the transaction and outbox rows are
+                # actually committed - the worker reads them on its own DB
+                # connection and won't see them otherwise, silently no-oping
+                # and leaving the outbox row stuck "pending"
                 charge_authorization.apply_async(
                     priority=5,
                     kwargs={
+                        "out_box_id": str(out_box_id),
                         "email": user_email,
                         "amount": str(fund_wallet.amount),
                         "currency": "NGN",
@@ -239,11 +277,6 @@ class WalletService:
                     },
                 )
 
-                transaction_response = TransactionResponse(
-                    **transaction_create.model_dump()
-                )
-
-            await self._uow.commit()
             sentry_logger.info("Wallet fund initiated", extra={"user_id": user_id})
 
             await circuit.record_success()
@@ -393,39 +426,66 @@ class WalletService:
             raise ServerError() from exc
 
     async def wallet_callback(
-        self, curr_user: User, reference: str, uow: UnitOfWorkRepository
+        self, reference: str, uow: UnitOfWorkRepository
     ) -> TransactionResponse:
         try:
-            user_id = curr_user.id
             await self._uow_wallet_callback(uow)
 
             transaction = await self._transaction_service._get_transaction(
                 paystack_reference=reference
             )
 
-            transaction.status = "initiated"
-            state_create: TransactionStateCreate = TransactionStateCreate(
-                transaction_id=transaction.id,
-                status="initiated",
-                source="user_action",
-            )
+            if not transaction:
+                sentry_logger.error(
+                    "Transaction not found for callback",
+                    extra={"reference": reference},
+                )
+                raise AuthenticationError()
 
-            await self._transaction_service._update_transaction(transaction)
-            await self._state_service._create_transaction_state(state_create)
+            callback_key = _fund_callback_key(reference, transaction.user_id)
+            stored = await self._redis_repo.get_key(callback_key)
+
+            if not stored:
+                sentry_logger.error(
+                    "Missing or expired fund callback record",
+                    extra={"reference": reference, "user_id": transaction.user_id},
+                )
+                raise AuthenticationError()
+
+            await self._redis_repo.delete_key(callback_key)
+
+            if transaction.status == "pending":
+                # Only move pending -> initiated here. The webhook is the
+                # authoritative source for anything past that (success,
+                # failed, ...) and may well have already landed by the time
+                # the browser redirect gets back to us - never downgrade a
+                # status it already advanced.
+                transaction.status = "initiated"
+                state_create: TransactionStateCreate = TransactionStateCreate(
+                    transaction_id=transaction.id,
+                    status="initiated",
+                    source="user_action",
+                )
+
+                await self._transaction_service._update_transaction(transaction)
+                await self._state_service._create_transaction_state(state_create)
 
             await self._uow.commit()
 
             sentry_logger.info(
                 "Transaction retrieved successfully for callback",
-                extra={"user_id": user_id},
+                extra={"user_id": transaction.user_id},
             )
             return TransactionResponse.model_validate(transaction)
         except Exception as exc:
             await self._uow.rollback()
 
+            if isinstance(exc, AuthenticationError):
+                raise
+
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
                 "Error occured while retrieving transaction record for callback",
-                extra={"user_id": user_id},
+                extra={"reference": reference},
             )
             raise ServerError() from exc

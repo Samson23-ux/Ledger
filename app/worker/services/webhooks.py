@@ -1,5 +1,4 @@
 import sentry_sdk
-from uuid import uuid7
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 import sentry_sdk.logger as sentry_logger
@@ -8,8 +7,12 @@ import sentry_sdk.logger as sentry_logger
 from app.worker.core import http_client
 from app.core.config import get_settings
 from app.api.models.refunds import Refund
-from app.worker.tasks.email import send_email
+from app.api.repo.email import EmailRepository
+from app.worker.services.email import TaskEmail
+from app.api.services.email import EmailService
+from app.api.repo.outbox import OutBoxRepository
 from app.api.repo.refunds import RefundRepository
+from app.api.services.outbox import OutBoxService
 from app.api.services.refunds import RefundService
 from app.api.services.thread_pool import ThreadPool
 from app.api.services.payment_gateway import Transaction
@@ -25,6 +28,9 @@ from app.api.services.authorization_codes import AuthCodeService
 from app.api.schemas.transaction_state import TransactionStateCreate
 from app.api.repo.transaction_state import TransactionStateRepository
 from app.api.services.transaction_state import TransactionStateService
+from app.api.repo.wallet_credits import WalletCreditRepository
+from app.api.services.wallet_credits import WalletCreditService
+from app.api.schemas.wallet_credits import WalletCreditCreate
 from app.email_texts import (
     refund_failed_message,
     refund_processed_message,
@@ -47,7 +53,11 @@ class TaskWebhook:
         self._refund_state_service = RefundStateService(
             state_repo=RefundStateRepository(sync_session=self._session)
         )
+        self._email_service = EmailService(
+            email_repo=EmailRepository(sync_session=self._session)
+        )
 
+        self._task_email = TaskEmail(self._session)
         self._auth_code_service = AuthCodeService(
             code_repo=AuthCodeRepository(sync_session=self._session)
         )
@@ -62,18 +72,34 @@ class TaskWebhook:
         self._transaction_state_service = TransactionStateService(
             state_repo=TransactionStateRepository(sync_session=self._session)
         )
+        self._out_box_service = OutBoxService(
+            out_box_repo=OutBoxRepository(sync_session=self._session)
+        )
+        self._wallet_credit_service = WalletCreditService(
+            credit_repo=WalletCreditRepository(sync_session=self._session)
+        )
 
-    def _process_success_event(self, transaction: PaymentTransaction, payload: dict):
+    def _process_success_event(
+        self, transaction: PaymentTransaction, payload: dict, source: str = "webhook"
+    ):
         wallet = transaction.wallet
         wallet.balance += transaction.amount
+
+        wallet_credit_create = WalletCreditCreate(
+            wallet_id=wallet.id,
+            payment_transaction_id=transaction.id,
+            type="credit",
+            amount=transaction.amount,
+        )
+        self._wallet_credit_service._create_wallet_credit_sync(wallet_credit_create)
 
         transaction.wallet_credited = True
         transaction.paid_at = datetime.now(timezone.utc)
 
         transaction.status = "success"
         transaction.card_expires_at = datetime(
-            payload.get("expiry_year"),
-            payload.get("expiry_month"),
+            int(payload.get("expiry_year")),
+            int(payload.get("expiry_month")),
             1,
             tzinfo=timezone.utc,
         )
@@ -104,7 +130,7 @@ class TaskWebhook:
         state_create: TransactionStateCreate = TransactionStateCreate(
             transaction_id=transaction.id,
             status="success",
-            source="webhook",
+            source=source,
         )
 
         return transaction, state_create
@@ -130,21 +156,17 @@ class TaskWebhook:
                     transaction.currency,
                     transaction.paystack_reference,
                 )
-                user_email = transaction.user.email or transaction.user.google_email
 
-                send_email.apply_async(
-                    priority=3,
-                    kwargs={
-                        "email_message": email_message,
-                        "email_id": str(uuid7()),
-                        "recipient_email": user_email,
-                    },
+                user_email = transaction.user.email or transaction.user.google_email
+                email_payload = self._task_email.create_email(
+                    "Wallet Funded", email_message, user_email
                 )
 
                 sentry_logger.info(
                     "Transaction success event received successfully",
                     extra={"task_id": self.task_id},
                 )
+                return email_payload
         except Exception as exc:
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
@@ -185,21 +207,17 @@ class TaskWebhook:
                         transaction.currency,
                         transaction.paystack_reference,
                     )
-                    user_email = transaction.user.email or transaction.user.google_email
 
-                    send_email.apply_async(
-                        priority=3,
-                        kwargs={
-                            "email_message": email_message,
-                            "email_id": str(uuid7()),
-                            "recipient_email": user_email,
-                        },
+                    user_email = transaction.user.email or transaction.user.google_email
+                    email_payload = self._task_email.create_email(
+                        "Transfer Rejected", email_message, user_email
                     )
 
                     sentry_logger.info(
                         "Transaction rejected event received successfully",
                         extra={"task_id": self.task_id},
                     )
+                    return email_payload
         except Exception as exc:
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
@@ -256,38 +274,34 @@ class TaskWebhook:
                 refund = self._refund_service._get_refund_sync(
                     payment_transaction_id=transaction.id
                 )
-                
+
                 if refund:
                     state_create = RefundStateCreate(
                         refund_id=refund.id,
                         status="needs_attention",
                         source="webhook",
                     )
-                
+
                     refund.status = "needs_attention"
                     refund.updated_at = datetime.now(timezone.utc)
-                
+
                     self._refund_service._update_refund_sync(refund)
                     self._refund_state_service._create_refund_state_sync(state_create)
-                
+
                     email_message = refund_needs_attention_message(
                         refund.amount, refund.currency, transaction.paystack_reference
                     )
+
                     user_email = refund.user.email or refund.user.google_email
-                
-                    send_email.apply_async(
-                        priority=3,
-                        kwargs={
-                            "email_message": email_message,
-                            "email_id": str(uuid7()),
-                            "recipient_email": user_email,
-                        },
+                    email_payload = self._task_email.create_email(
+                        "Refund Needs Attention", email_message, user_email
                     )
-                
+
                     sentry_logger.info(
                         "Refund needs attention event received successfully",
                         extra={"task_id": self.task_id},
                     )
+                    return email_payload
         except Exception as exc:
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
@@ -297,16 +311,26 @@ class TaskWebhook:
 
             raise exc
 
-    def _refund_processed(self, transaction: PaymentTransaction, refund: Refund):
+    def _refund_processed(
+        self, transaction: PaymentTransaction, refund: Refund, source: str = "webhook"
+    ):
         wallet = transaction.wallet
 
         wallet.balance -= refund.amount
         wallet.updated_at = datetime.now(timezone.utc)
 
+        wallet_credit_create = WalletCreditCreate(
+            wallet_id=wallet.id,
+            payment_transaction_id=transaction.id,
+            type="debit",
+            amount=refund.amount,
+        )
+        self._wallet_credit_service._create_wallet_credit_sync(wallet_credit_create)
+
         state_create = RefundStateCreate(
             refund_id=refund.id,
             status="processed",
-            source="webhook",
+            source=source,
         )
 
         refund.status = "processed"
@@ -327,31 +351,27 @@ class TaskWebhook:
                 refund = self._refund_service._get_refund_sync(
                     payment_transaction_id=transaction.id
                 )
-                
+
                 if refund and not refund.wallet_debited:
                     refund, state_create = self._refund_processed(transaction, refund)
-                
+
                     self._refund_service._update_refund_sync(refund)
                     self._refund_state_service._create_refund_state_sync(state_create)
-                
+
                     email_message = refund_processed_message(
                         refund.amount, refund.currency, transaction.paystack_reference
                     )
+
                     user_email = refund.user.email or refund.user.google_email
-                
-                    send_email.apply_async(
-                        priority=3,
-                        kwargs={
-                            "email_message": email_message,
-                            "email_id": str(uuid7()),
-                            "recipient_email": user_email,
-                        },
+                    email_payload = self._task_email.create_email(
+                        "Refund Processed", email_message, user_email
                     )
-                
+
                     sentry_logger.info(
                         "Refund processed event received successfully",
                         extra={"task_id": self.task_id},
                     )
+                    return email_payload
         except Exception as exc:
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
@@ -371,38 +391,34 @@ class TaskWebhook:
                 refund = self._refund_service._get_refund_sync(
                     payment_transaction_id=transaction.id
                 )
-                
+
                 if refund:
                     state_create = RefundStateCreate(
                         refund_id=refund.id,
                         status="failed",
                         source="webhook",
                     )
-                
+
                     refund.status = "failed"
                     refund.updated_at = datetime.now(timezone.utc)
-                
+
                     self._refund_service._update_refund_sync(refund)
                     self._refund_state_service._create_refund_state_sync(state_create)
-                
+
                     email_message = refund_failed_message(
                         refund.amount, refund.currency, transaction.paystack_reference
                     )
+
                     user_email = refund.user.email or refund.user.google_email
-                
-                    send_email.apply_async(
-                        priority=3,
-                        kwargs={
-                            "email_message": email_message,
-                            "email_id": str(uuid7()),
-                            "recipient_email": user_email,
-                        },
+                    email_payload = self._task_email.create_email(
+                        "Refund Failed", email_message, user_email
                     )
-                
+
                     sentry_logger.info(
                         "Refund failed event received successfully",
                         extra={"task_id": self.task_id},
                     )
+                    return email_payload
         except Exception as exc:
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
@@ -412,18 +428,22 @@ class TaskWebhook:
 
             raise exc
 
-    def _forward_to_webhook_event(self, payload: dict):
+    def _forward_to_webhook_event(self, payload: dict, out_box_id: str):
+        res = None
         event = payload.get("event")
 
         if event == "charge.success":
-            self.transaction_success_event(payload)
+            res = self.transaction_success_event(payload)
         elif event == "bank.transfer.rejected":
-            self.transfer_reject_event(payload)
+            res = self.transfer_reject_event(payload)
         elif event == "refund.processing":
-            self.refund_processing_event(payload)
+            res = self.refund_processing_event(payload)
         elif event == "refund.processed":
-            self.refund_processed_event(payload)
+            res = self.refund_processed_event(payload)
         elif event == "refund.failed":
-            self.refund_failed_event(payload)
+            res = self.refund_failed_event(payload)
         elif event == "refund.needs-attention":
-            self.refund_needs_attention_event(payload)
+            res = self.refund_needs_attention_event(payload)
+
+        self._out_box_service.mark_processed_sync(out_box_id)
+        return res

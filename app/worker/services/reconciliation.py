@@ -7,13 +7,12 @@ import sentry_sdk.logger as sentry_logger
 
 from app.worker.core import http_client
 from app.core.config import get_settings
-from app.worker.tasks.email import send_email
 from app.api.schemas.refunds import RefundInDB
+from app.worker.services.email import TaskEmail
 from app.api.repo.refunds import RefundRepository
 from app.api.services.refunds import RefundService
 from app.api.services.thread_pool import ThreadPool
 from app.worker.services.webhooks import TaskWebhook
-from app.api.schemas.refund_state import RefundStateInDB
 from app.api.schemas.transactions import TransactionInDB
 from app.api.repo.transactions import TransactionRepository
 from app.api.repo.refund_state import RefundStateRepository
@@ -22,10 +21,7 @@ from app.api.services.payment_gateway import Transaction, Refund
 from app.api.repo.transaction_state import TransactionStateRepository
 from app.api.services.transaction_state import TransactionStateService
 from app.api.services.refund_state import RefundStateService, RefundStateCreate
-from app.api.schemas.transaction_state import (
-    TransactionStateInDB,
-    TransactionStateCreate,
-)
+from app.api.schemas.transaction_state import TransactionStateCreate
 from app.email_texts import (
     refund_failed_message,
     refund_processed_message,
@@ -48,6 +44,7 @@ class ReconcileTransaction:
             api_key=SETTINGS.PAYSTACK_API_KEY, client=http_client()
         )
 
+        self._task_email = TaskEmail(self._session)
         self._transaction_service = TransactionService(
             pool=ThreadPool(),
             transaction_repo=TransactionRepository(sync_session=self._session),
@@ -62,6 +59,7 @@ class ReconcileTransaction:
                 reconcile=True
             )
 
+            email_payload = None
             state_updates = []
             transaction_updates = []
 
@@ -71,8 +69,12 @@ class ReconcileTransaction:
                     transaction.paystack_reference
                 )
 
-                transaction_status = payload_data["status"]
                 payload_data = paystack_transaction["data"]
+                transaction_status = payload_data["status"]
+
+                if transaction_status == transaction.status:
+                    # nothing changed on paystack's side since we last saw it
+                    continue
 
                 if transaction_status == "success":
                     payload = {
@@ -91,7 +93,9 @@ class ReconcileTransaction:
                     }
 
                     transaction, state_create = (
-                        self._task_webhook._process_success_event(transaction, payload)
+                        self._task_webhook._process_success_event(
+                            transaction, payload, "reconciliation"
+                        )
                     )
 
                     email_message = successful_transaction_message(
@@ -99,13 +103,8 @@ class ReconcileTransaction:
                         transaction.currency,
                         transaction.paystack_reference,
                     )
-                    send_email.apply_async(
-                        priority=3,
-                        kwargs={
-                            "email_message": email_message,
-                            "email_id": str(uuid7()),
-                            "recipient_email": user_email,
-                        },
+                    email_payload = self._task_email.create_email(
+                        "Wallet Funded", email_message, user_email
                     )
                 elif (
                     transaction.status == "reversed"
@@ -115,8 +114,10 @@ class ReconcileTransaction:
                 else:
                     transaction.status = transaction_status
                     transaction.updated_at = datetime.now(timezone.utc)
-                    transaction.gateway_response = payload.get("gateway_response")
-                    transaction.authorization_code = payload.get("authorization_code")
+                    transaction.gateway_response = payload_data.get("gateway_response")
+                    transaction.authorization_code = payload_data.get(
+                        "authorization", {}
+                    ).get("authorization_code")
 
                     if transaction_status == "rejected":
                         email_message = rejected_transaction_message(
@@ -124,13 +125,8 @@ class ReconcileTransaction:
                             transaction.currency,
                             transaction.paystack_reference,
                         )
-                        send_email.apply_async(
-                            priority=3,
-                            kwargs={
-                                "email_message": email_message,
-                                "email_id": str(uuid7()),
-                                "recipient_email": user_email,
-                            },
+                        email_payload = self._task_email.create_email(
+                            "Transfer Rejected", email_message, user_email
                         )
                     elif transaction_status == "failed":
                         email_message = failed_transaction_message(
@@ -138,13 +134,8 @@ class ReconcileTransaction:
                             transaction.currency,
                             transaction.paystack_reference,
                         )
-                        send_email.apply_async(
-                            priority=3,
-                            kwargs={
-                                "email_message": email_message,
-                                "email_id": str(uuid7()),
-                                "recipient_email": user_email,
-                            },
+                        email_payload = self._task_email.create_email(
+                            "Transaction Failed", email_message, user_email
                         )
 
                     state_create: TransactionStateCreate = TransactionStateCreate(
@@ -153,12 +144,17 @@ class ReconcileTransaction:
                         source="reconciliation",
                     )
 
-                state_updates.append(TransactionStateInDB.model_validate(state_create))
-                transaction_updates.append(TransactionInDB.model_validate(transaction))
+                state_updates.append(state_create.model_dump())
+                transaction_updates.append(
+                    TransactionInDB.model_validate(transaction).model_dump()
+                )
 
             if transactions:
                 self._state_service._create_state_records(state_updates)
-                self._transaction_service._update_transaction_records(transaction_updates)
+                self._transaction_service._update_transaction_records(
+                    transaction_updates
+                )
+            return email_payload
         except Exception as exc:
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
@@ -177,6 +173,7 @@ class ReconcileRefund:
         self._task_webhook = TaskWebhook(self.task_id, self._session)
         self._gateway = Refund(api_key=SETTINGS.PAYSTACK_API_KEY, client=http_client())
 
+        self._task_email = TaskEmail(self._session)
         self._refund_service = RefundService(
             pool=ThreadPool(), refund_repo=RefundRepository(sync_session=self._session)
         )
@@ -188,6 +185,7 @@ class ReconcileRefund:
         try:
             refunds = self._refund_service._get_pending_refunds(reconcile=True)
 
+            email_payload = None
             state_updates = []
             refunds_updates = []
 
@@ -197,23 +195,23 @@ class ReconcileRefund:
 
                 refund_status = paystack_refund["data"]["status"]
 
+                if refund_status == refund.status:
+                    # nothing changed on paystack's side since we last saw it
+                    continue
+
                 if refund_status == "processed":
                     refund, state_create = self._task_webhook._refund_processed(
-                        refund.transaction, refund
+                        refund.transaction, refund, "reconciliation"
                     )
+                    self._state_service._create_refund_state_sync(state_create)
 
                     email_message = refund_processed_message(
                         refund.amount,
                         refund.currency,
                         refund.transaction.paystack_reference,
                     )
-                    send_email.apply_async(
-                        priority=3,
-                        kwargs={
-                            "email_message": email_message,
-                            "email_id": str(uuid7()),
-                            "recipient_email": user_email,
-                        },
+                    email_payload = self._task_email.create_email(
+                        "Refund Processed", email_message, user_email
                     )
                 else:
                     refund.status = refund_status
@@ -225,8 +223,10 @@ class ReconcileRefund:
                         source="reconciliation",
                     )
 
-                    refunds_updates.append(RefundInDB.model_validate(refund))
-                    state_updates.append(RefundStateInDB.model_validate(state_create))
+                    refunds_updates.append(
+                        RefundInDB.model_validate(refund).model_dump()
+                    )
+                    state_updates.append(state_create.model_dump())
 
                     if refund_status == "needs-attention":
                         email_message = refund_needs_attention_message(
@@ -234,13 +234,8 @@ class ReconcileRefund:
                             refund.currency,
                             refund.transaction.paystack_reference,
                         )
-                        send_email.apply_async(
-                            priority=3,
-                            kwargs={
-                                "email_message": email_message,
-                                "email_id": str(uuid7()),
-                                "recipient_email": user_email,
-                            },
+                        email_payload = self._task_email.create_email(
+                            "Refund Needs Attention", email_message, user_email
                         )
                     elif refund_status == "failed":
                         email_message = refund_failed_message(
@@ -248,18 +243,14 @@ class ReconcileRefund:
                             refund.currency,
                             refund.transaction.paystack_reference,
                         )
-                        send_email.apply_async(
-                            priority=3,
-                            kwargs={
-                                "email_message": email_message,
-                                "email_id": str(uuid7()),
-                                "recipient_email": user_email,
-                            },
+                        email_payload = self._task_email.create_email(
+                            "Refund Failed", email_message, user_email
                         )
 
             if refunds:
                 self._state_service._create_state_records(state_updates)
                 self._refund_service._update_refund_records(refunds_updates)
+            return email_payload
         except Exception as exc:
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(

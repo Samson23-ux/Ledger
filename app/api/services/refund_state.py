@@ -37,6 +37,7 @@ class RefundStateService:
                     "Refund state not found",
                     extra={"user_id": user_id, "refund_id": id},
                 )
+                raise RefundStateNotFoundError(id)
 
             refund_state = []
             for state in refund_state_db:
@@ -48,6 +49,7 @@ class RefundStateService:
             )
             return refund_state
         except Exception as exc:
+            print(f"EXCEPTION ========>>>>> {exc}")
             if isinstance(exc, RefundStateNotFoundError):
                 raise RefundStateNotFoundError(id=id)
 

@@ -92,13 +92,13 @@ class RefundService:
 
     async def _get_outbox_payload(
         self,
+        out_box_id: UUID,
         reference: str,
         refund_id: UUID,
         customer_note: str,
         merchant_note: str,
         amount: str,
     ) -> OutBoxCreate:
-        out_box_id = uuid7()
         return OutBoxCreate(
             id=out_box_id,
             event_type="request_refund",
@@ -114,12 +114,12 @@ class RefundService:
 
     async def _get_outbox_payload_retry(
         self,
+        out_box_id: UUID,
         refund_id: UUID,
         existing_refund_id: int | None,
         account_number: str,
         bank_id: str,
     ) -> OutBoxCreate:
-        out_box_id = uuid7()
         return OutBoxCreate(
             id=out_box_id,
             event_type="retry_refund",
@@ -177,9 +177,12 @@ class RefundService:
                 )
 
                 self._refund_repo.add(entity=refund_create)
+                await self._uow.flush()
                 await self._state_service._create_refund_state(refund_state)
 
+                out_box_id: UUID = uuid7()
                 outbox_create = await self._get_outbox_payload(
+                    out_box_id,
                     transaction.paystack_reference,
                     refund_create.id,
                     customer_note,
@@ -188,9 +191,17 @@ class RefundService:
                 )
                 await self._out_box_service._create_out_box(outbox_create)
 
+            await self._uow.commit()
+
+            if create_refund:
+                # only dispatch once the refund and outbox rows are actually
+                # committed - the worker reads them on its own DB connection
+                # and won't see them otherwise, silently no-oping and leaving
+                # the outbox row stuck "pending"
                 request_refund.apply_async(
                     priority=5,
                     kwargs={
+                        "out_box_id": str(out_box_id),
                         "amount": str(transaction.amount),
                         "currency": transaction.currency,
                         "refund_id": str(refund_create.id),
@@ -207,6 +218,8 @@ class RefundService:
                 extra={"user_id": user_id, "transaction_id": transaction.id},
             )
         except Exception as exc:
+            await self._uow.rollback()
+
             if isinstance(exc, TransactionNotFoundError):
                 raise TransactionNotFoundError(id=id)
 
@@ -320,32 +333,35 @@ class RefundService:
                 )
                 raise RefundNotFoundError(id=id)
 
-            refund_create, refund_state = self._get_refund_payload(
-                user_id,
-                refund.payment_transaction_id,
-                refund.amount,
-                refund.currency,
-                refund.customer_note,
-            )
-
-            self._refund_repo.add(entity=refund_create)
-            await self._state_service._create_refund_state(refund_state)
-
+            # a retry acts on the existing needs_attention refund itself -
+            # it's the same underlying Paystack refund, just supplying the
+            # missing bank details, not a new refund attempt. Creating a
+            # second Refund row here would collide with this one's
+            # paystack_refund_id (unique) once Paystack's retry response
+            # comes back with the same id.
+            out_box_id: UUID = uuid7()
             outbox_create = await self._get_outbox_payload_retry(
-                refund_create.id,
+                out_box_id,
+                refund.id,
                 refund.paystack_refund_id,
                 retry_payload.account_number,
                 retry_payload.bank_id,
             )
             await self._out_box_service._create_out_box(outbox_create)
 
+            await self._uow.commit()
+
+            # only dispatch once the outbox row is actually committed - the
+            # worker reads it on its own DB connection and won't see it
+            # otherwise, silently no-oping and leaving the outbox row stuck
+            # "pending"
             retry_refund_task.apply_async(
                 priority=5,
                 kwargs={
+                    "out_box_id": str(out_box_id),
                     "currency": refund.currency,
-                    "refund_id": str(refund_create.id),
+                    "refund_id": str(refund.id),
                     "existing_refund_id": refund.paystack_refund_id,
-                    "reference": refund.transaction.paystack_reference,
                     "message_id": str(uuid7()),
                     "account_number": retry_payload.account_number,
                     "bank_id": retry_payload.bank_id,
@@ -361,6 +377,8 @@ class RefundService:
                 },
             )
         except Exception as exc:
+            await self._uow.rollback()
+
             if isinstance(exc, RefundNotFoundError):
                 raise RefundNotFoundError(id=id)
 

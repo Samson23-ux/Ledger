@@ -40,7 +40,6 @@ class PaymentTransaction(Base):
         ForeignKey(
             "users.id", ondelete="CASCADE", name="payment_transactions_user_id_fk"
         ),
-        unique=True,
     )
     wallet_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -87,14 +86,8 @@ class PaymentTransaction(Base):
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name="payment_transactions_pk"),
-        Index("idx_payment_transactions_user_id", user_id, id),
-        Index("idx_payment_transactions_wallet_id", wallet_id),
-        Index(
-            "idx_payment_transactions_paystack_reference",
-            paystack_reference,
-            unique=True,
-        ),
-        Index("idx_payment_transactions_status_id", status, id, unique=True),
+        Index("idx_payment_transactions_user_id", user_id),
+        Index("idx_payment_transactions_status", status),
         Index("idx_payment_transactions_created_at", created_at),
         Index("idx_payment_transactions_updated_at", updated_at),
     )

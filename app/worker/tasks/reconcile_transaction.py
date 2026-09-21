@@ -6,6 +6,7 @@ from paystack import exceptions as PaystackException
 
 from app.core.config import get_settings
 from app.worker.celery_app import celery_app
+from app.worker.tasks.email import send_email
 from app.core.exceptions import MaxRetriesError
 from app.worker.tasks.base import BaseTaskWithFailure
 from app.worker.core import get_redis_repo, get_db_session
@@ -29,13 +30,15 @@ def reconcile_transaction(self):
         )
 
         if not idempotency_key:
-            reconcile.reconciliation()
+            email_payload = reconcile.reconciliation()
+            session.commit()
+
+            if email_payload:
+                send_email.apply_async(priority=3, kwargs=email_payload)
 
             redis_repo.mark_idempotency_key(
                 f"reconcile:{task_id}:transaction", "1", SETTINGS.IDEMPOTENCY_KEY_TTL
             )
-
-            session.commit()
     except (
         psycopg2.InternalError,
         psycopg2.InterfaceError,

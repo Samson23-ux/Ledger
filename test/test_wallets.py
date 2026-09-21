@@ -5,7 +5,7 @@ from uuid import uuid7, uuid4
 from decimal import Decimal
 from sqlalchemy import select
 from redis.asyncio import Redis
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -27,6 +27,14 @@ def initialize_transaction_res():
             "reference": "re4lyvq3s3",
         },
     }
+
+
+def mock_paystack_response(data: dict) -> MagicMock:
+    """The paystack SDK returns a Response object with a to_dict() method,
+    not a plain dict - mirror that shape so the mock matches reality."""
+    response = MagicMock()
+    response.to_dict.return_value = data
+    return response
 
 
 @pytest.fixture
@@ -260,40 +268,72 @@ class TestGetWalletCredit:
 
 
 class TestWalletFundCallback:
+    """The callback is hit after paystack redirects back, with no
+    Authorization header - so the flow here is: fund_wallet records
+    reference+user_id in redis before redirecting, and the callback checks
+    that record against the transaction it looks up by reference, rather
+    than relying on any cookie/session surviving the redirect."""
+
     @pytest.mark.asyncio
     async def test_wallet_fund_callback(
         self,
         async_client: httpx.AsyncClient,
         login: httpx.Response,
-        pending_transaction: PaymentTransaction,
+        wallet: Wallet,
+        paystack,
     ):
         access_token = login.json()["data"]["access_token"]
+        response: dict = initialize_transaction_res()
+
+        paystack.Transaction.initialize.return_value = mock_paystack_response(response)
+
+        fund_res: httpx.Response = await async_client.post(
+            "/wallets/me/fund",
+            json={"channel": "card", "amount": "500.00"},
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "x-idempotency-key": str(uuid4()),
+                "env": "test",
+            },
+        )
+        assert fund_res.status_code == 302
 
         res: httpx.Response = await async_client.get(
             "/wallets/fund/callback",
-            params={"reference": pending_transaction.paystack_reference},
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "env": "test",
-            },
+            params={"reference": response["data"]["reference"]},
+            headers={"env": "test"},
         )
 
         json_res = res.json()
 
         assert res.status_code == 200
-        assert json_res["data"]["id"] == str(pending_transaction.id)
-        assert (
-            json_res["data"]["paystack_reference"]
-            == pending_transaction.paystack_reference
-        )
+        assert json_res["data"]["status"] == "initiated"
+        assert json_res["data"]["paystack_reference"] == response["data"]["reference"]
 
     @pytest.mark.asyncio
-    async def test_unauthenticated_wallet_fund_callback(
+    async def test_wallet_fund_callback_transaction_not_found(
         self, async_client: httpx.AsyncClient
     ):
         res: httpx.Response = await async_client.get(
             "/wallets/fund/callback",
             params={"reference": str(uuid4())},
+            headers={"env": "test"},
+        )
+
+        assert res.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_wallet_fund_callback_missing_redis_record(
+        self,
+        async_client: httpx.AsyncClient,
+        pending_transaction: PaymentTransaction,
+    ):
+        """pending_transaction is seeded directly in the db, bypassing
+        fund_wallet - so no redis record was ever set for its reference."""
+
+        res: httpx.Response = await async_client.get(
+            "/wallets/fund/callback",
+            params={"reference": pending_transaction.paystack_reference},
             headers={"env": "test"},
         )
 
@@ -312,7 +352,7 @@ class TestFundWallet:
         access_token = login.json()["data"]["access_token"]
         response: dict = initialize_transaction_res()
 
-        paystack.Transaction.initialize.return_value = response
+        paystack.Transaction.initialize.return_value = mock_paystack_response(response)
 
         fund_payload: dict = {"channel": "card", "amount": "500.00"}
 

@@ -16,7 +16,6 @@ from app.deps import (
     WalletServiceDep,
     CircuitBreakerDep,
     write_limiter,
-    TransactionServiceDep,
     WalletCreditServiceDep,
     CurrentActiveCachedUser,
 )
@@ -54,7 +53,7 @@ async def get_wallet_credits(
         str,
         Query(description="Cursor from the last received credits"),
     ] = None,
-    sort: Annotated[str, Query(description="Sort products by created_at")] = None,
+    sort: Annotated[str, Query(description="Sort credits by created_at")] = None,
     limit: Annotated[
         int, Query(description="Limit the number of credits returned")
     ] = 10,
@@ -97,15 +96,11 @@ async def get_wallet_credit(
     response_model=SuccessResponse[TransactionResponse],
 )
 async def wallet_fund_callback(
-    request: Request,
     uow: UnitOfWorkRepo,
     wallet_service: WalletServiceDep,
-    curr_user: CurrentActiveCachedUser,
     reference: Annotated[str, Query(...)],
 ):
-    transaction = await wallet_service.wallet_callback(
-        curr_user, reference, uow
-    )
+    transaction = await wallet_service.wallet_callback(reference, uow)
     return SuccessResponse(message="Transaction initiated", data=transaction)
 
 

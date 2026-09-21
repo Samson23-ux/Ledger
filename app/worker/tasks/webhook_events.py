@@ -7,6 +7,7 @@ import sentry_sdk.logger as sentry_logger
 
 from app.core.config import get_settings
 from app.worker.celery_app import celery_app
+from app.worker.tasks.email import send_email
 from app.core.exceptions import MaxRetriesError
 from app.worker.services.webhooks import TaskWebhook
 from app.worker.tasks.base import BaseTaskWithFailure
@@ -16,13 +17,13 @@ SETTINGS = get_settings()
 
 
 @celery_app.task(bind=True, base=BaseTaskWithFailure)
-def process_webhook_events(self, payload: dict):
+def process_webhook_events(self, out_box_id: str, payload: dict):
     try:
         task_id = self.request.id
 
         redis_repo = get_redis_repo()
         session = next(get_db_session())
-        
+
         task_webhook = TaskWebhook(task_id, session)
 
         message_id = payload.get("message_id")
@@ -36,14 +37,16 @@ def process_webhook_events(self, payload: dict):
         idempotency_key = redis_repo.get_idempotency_key(f"webhook:{message_id}")
 
         if resource and not idempotency_key:
-            task_webhook._forward_to_webhook_event(payload)
+            email_payload = task_webhook._forward_to_webhook_event(payload, out_box_id)
+            session.commit()
+
+            if email_payload:
+                send_email.apply_async(priority=3, kwargs=email_payload)
 
             redis_repo.release_lock_sync(f"webhook:{message_id}:task", resource_token)
             redis_repo.mark_idempotency_key(
                 f"webhook:{message_id}", "1", SETTINGS.IDEMPOTENCY_KEY_TTL
             )
-
-            session.commit()
 
         if not resource:
             sentry_logger.info(

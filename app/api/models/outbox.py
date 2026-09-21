@@ -31,5 +31,5 @@ class OutBox(Base):
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name="outbox_pk"),
-        Index("idx_outbox_status_event_type", status, event_type),
+        Index("idx_outbox_status", status),
     )

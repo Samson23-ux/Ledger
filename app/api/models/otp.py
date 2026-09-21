@@ -1,4 +1,3 @@
-import enum
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy.orm import Mapped, mapped_column
@@ -6,7 +5,6 @@ from sqlalchemy import (
     text,
     Enum,
     UUID,
-    Index,
     String,
     DateTime,
     ForeignKey,
@@ -35,7 +33,4 @@ class Otp(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
-    __table_args__ = (
-        Index("idx_auth_otp", otp),
-        PrimaryKeyConstraint("id", name="otp_id_pk"),
-    )
+    __table_args__ = (PrimaryKeyConstraint("id", name="otp_id_pk"),)

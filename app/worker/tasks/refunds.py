@@ -18,6 +18,7 @@ SETTINGS = get_settings()
 @celery_app.task(bind=True, base=BaseTaskWithFailure)
 def request_refund(
     self,
+    out_box_id: str,
     amount: str,
     currency: str,
     refund_id: str,
@@ -46,15 +47,20 @@ def request_refund(
 
         if resource and not idempotency_key:
             task_refund.request_refund(
-                amount, currency, refund_id, reference, customer_note, merchant_note
+                amount,
+                currency,
+                refund_id,
+                reference,
+                customer_note,
+                merchant_note,
+                out_box_id,
             )
+            session.commit()
 
             redis_repo.release_lock_sync(f"refund:{refund_id}:request", resource_token)
             redis_repo.mark_idempotency_key(
                 f"refund:{message_id}:request", "1", SETTINGS.IDEMPOTENCY_KEY_TTL
             )
-
-            session.commit()
 
         if not resource:
             sentry_logger.info(
@@ -88,6 +94,7 @@ def request_refund(
 @celery_app.task(bind=True, base=BaseTaskWithFailure)
 def retry_refund(
     self,
+    out_box_id: str,
     currency: str,
     refund_id: str,
     existing_refund_id: int,
@@ -115,15 +122,19 @@ def retry_refund(
 
         if resource and not idempotency_key:
             task_refund.retry_refund(
-                bank_id, refund_id, existing_refund_id, currency, account_number
+                bank_id,
+                refund_id,
+                existing_refund_id,
+                currency,
+                account_number,
+                out_box_id,
             )
+            session.commit()
 
             redis_repo.release_lock_sync(f"refund:{refund_id}:retry", resource_token)
             redis_repo.mark_idempotency_key(
                 f"refund:{message_id}:retry", "1", SETTINGS.IDEMPOTENCY_KEY_TTL
             )
-
-            session.commit()
 
         if not resource:
             sentry_logger.info(

@@ -208,6 +208,14 @@ def make_http_error(status_code: int, message: str = "Error"):
     return httpx.HTTPStatusError(message=message, request=req, response=res)
 
 
+def mock_paystack_response(data: dict) -> MagicMock:
+    """The paystack SDK returns a Response object with a to_dict() method,
+    not a plain dict - mirror that shape so the mock matches reality."""
+    response = MagicMock()
+    response.to_dict.return_value = data
+    return response
+
+
 @pytest.fixture
 def paystack():
     paystack_path = "app.api.services.payment_gateway.paystack"
@@ -232,7 +240,7 @@ class TestTransaction:
 
         response: dict = initialize_transaction_res()
 
-        paystack.Transaction.initialize.return_value = response
+        paystack.Transaction.initialize.return_value = mock_paystack_response(response)
         res = await self.pool.run_in_pool(
             self.transaction.initialize_transaction, **payload
         )
@@ -300,7 +308,9 @@ class TestTransaction:
 
         response: dict = charge_authorization_res()
 
-        paystack.Transaction.charge_authorization.return_value = response
+        paystack.Transaction.charge_authorization.return_value = mock_paystack_response(
+            response
+        )
         res = await self.pool.run_in_pool(
             self.transaction.charge_authorization, **payload
         )
@@ -366,7 +376,7 @@ class TestTransaction:
         transaction_id = 4099260516
         response: dict = fetch_transaction_res()
 
-        paystack.Transaction.fetch.return_value = response
+        paystack.Transaction.fetch.return_value = mock_paystack_response(response)
         res = await self.pool.run_in_pool(
             self.transaction.fetch_transaction, id=transaction_id
         )
@@ -444,7 +454,7 @@ class TestTransaction:
         reference = str(uuid4())
         response: dict = verify_transaction_res()
 
-        paystack.Transaction.verify.return_value = response
+        paystack.Transaction.verify.return_value = mock_paystack_response(response)
         res = await self.pool.run_in_pool(
             self.transaction.verify_transaction, reference=reference
         )
@@ -529,7 +539,7 @@ class TestRefund:
         payload: dict = refund_arguments()
         response: dict = request_refund_res()
 
-        paystack.Refund.create.return_value = response
+        paystack.Refund.create.return_value = mock_paystack_response(response)
         res = await self.pool.run_in_pool(self.refund.request_refund, **payload)
 
         paystack.Refund.create.assert_called_once()
@@ -586,7 +596,7 @@ class TestRefund:
         refund_id = 55
         response: dict = get_refund_res()
 
-        paystack.Refund.fetch.return_value = response
+        paystack.Refund.fetch.return_value = mock_paystack_response(response)
         res = await self.pool.run_in_pool(self.refund.get_refund, refund_id=refund_id)
 
         paystack.Refund.fetch.assert_called_once()

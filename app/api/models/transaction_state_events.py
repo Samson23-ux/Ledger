@@ -43,7 +43,5 @@ class TransactionStateEvent(Base):
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name="transaction_state_events_pk"),
-        Index("idx_transaction_state_events_occurred_at", occurred_at),
         Index("idx_transaction_state_events_transaction_id", transaction_id),
-        Index("idx_transaction_state_events_single_row_state", transaction_id, status),
     )

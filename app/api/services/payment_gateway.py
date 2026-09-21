@@ -1,5 +1,6 @@
 import paystack
 import sentry_sdk
+from decimal import Decimal
 from functools import wraps
 from sentry_sdk import logger as sentry_logger
 from httpx import Client, Response, HTTPStatusError
@@ -9,6 +10,17 @@ from paystack import exceptions as PaystackException
 from app.core.config import get_settings
 
 SETTINGS = get_settings()
+
+
+def to_subunit(amount: Decimal | str) -> int:
+    """Paystack expects amounts in the smallest currency subunit
+    (e.g. kobo for NGN), not the major unit stored/displayed."""
+    return int(Decimal(str(amount)) * 100)
+
+
+def from_subunit(amount: int) -> Decimal:
+    """Convert a Paystack subunit amount back to the major currency unit."""
+    return Decimal(amount) / 100
 
 
 def handle_paystack_errors(func):
@@ -44,28 +56,31 @@ class PaymentGateway:
 class Transaction(PaymentGateway):
     @handle_paystack_errors
     def initialize_transaction(
-        self, email: str, amount: int, currency: str, channel: str
+        self, email: str, amount: Decimal | str, currency: str, channel: str
     ):
         self.set_api_key()
 
         res = paystack.Transaction.initialize(
-            email=email, amount=amount, currency=currency, channels=[channel]
+            email=email,
+            amount=to_subunit(amount),
+            currency=currency,
+            channels=[channel],
         )
-        return res
+        return res.to_dict()
 
     @handle_paystack_errors
     def charge_authorization(
-        self, email: str, amount: str, currency: str, authorization_code: str
+        self, email: str, amount: Decimal | str, currency: str, authorization_code: str
     ):
         self.set_api_key()
 
         res = paystack.Transaction.charge_authorization(
             email=email,
-            amount=amount,
+            amount=to_subunit(amount),
             currency=currency,
             authorization_code=authorization_code,
         )
-        return res
+        return res.to_dict()
 
     @handle_paystack_errors
     def fetch_transaction(self, id: int):
@@ -73,7 +88,7 @@ class Transaction(PaymentGateway):
 
         try:
             res = paystack.Transaction.fetch(id=id)
-            return res
+            return res.to_dict()
         except PaystackException.NotFoundException as exc:
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
@@ -89,7 +104,7 @@ class Transaction(PaymentGateway):
 
         try:
             res = paystack.Transaction.verify(reference=reference)
-            return res
+            return res.to_dict()
         except PaystackException.NotFoundException as exc:
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
@@ -109,7 +124,7 @@ class Refund(PaymentGateway):
     def request_refund(
         self,
         reference: str,
-        amount: int,
+        amount: Decimal | str,
         currency: str,
         customer_note: str,
         merchant_note: str,
@@ -118,12 +133,12 @@ class Refund(PaymentGateway):
 
         res = paystack.Refund.create(
             transaction=reference,
-            amount=amount,
+            amount=to_subunit(amount),
             currency=currency,
             customer_note=customer_note,
             merchant_note=merchant_note,
         )
-        return res
+        return res.to_dict()
 
     @handle_paystack_errors
     def get_refund(self, refund_id: int):
@@ -131,7 +146,7 @@ class Refund(PaymentGateway):
 
         try:
             res = paystack.Refund.fetch(id=refund_id)
-            return res
+            return res.to_dict()
         except PaystackException.NotFoundException as exc:
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
@@ -163,9 +178,11 @@ class Refund(PaymentGateway):
                     "content-type": "application/json",
                 },
             )
+            res.raise_for_status()
             return res.json()
         except HTTPStatusError as exc:
-            reason = exc.response.json()["message"]
+            error_body = exc.response.json()
+            reason = error_body.get("message")
             status_code = exc.response.status_code
 
             if status_code == 401:
@@ -184,7 +201,13 @@ class Refund(PaymentGateway):
                 raise PaystackException.NotFoundException(
                     status=status_code, reason=reason
                 )
-            if status_code >= 500:
+            # Paystack flags some 4xx responses (e.g. a transient failure on
+            # their end while retrying a refund) as retryable via
+            # meta.nextStep rather than a 5xx - treat those the same as a
+            # service outage so the task's existing backoff-retry kicks in
+            # instead of rejecting outright.
+            retryable = error_body.get("meta", {}).get("nextStep") == "Try again later"
+            if status_code >= 500 or retryable:
                 raise PaystackException.ServiceException(
                     status=status_code, reason=reason
                 )

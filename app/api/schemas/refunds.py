@@ -29,9 +29,9 @@ class RefundCreate(RefundBase):
 class RefundInDB(RefundBase):
     paystack_refund_id: Optional[int] = None
     status: RefundStatus
-    refunded_at: datetime
+    refunded_at: Optional[datetime] = None
     created_at: datetime
-    updated_at: datetime
+    updated_at: Optional[datetime] = None
 
 
 class RetryRefund(BaseModel):

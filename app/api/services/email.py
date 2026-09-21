@@ -30,6 +30,21 @@ class EmailService:
             )
             raise ServerError() from exc
 
+    def create_email_sync(self, email_payload: EmailInDB):
+        try:
+            email = self._email_repo.sync_add(entity=email_payload)
+
+            self._email_repo.sync_flush()
+            self._email_repo.sync_refresh(email)
+        except Exception as exc:
+            self._email_repo.sync_rollback()
+
+            sentry_sdk.capture_exception(exc)
+            sentry_logger.error(
+                "Error occured while creating email record",
+            )
+            raise ServerError() from exc
+
     def get_processed_email(self, email_id: UUID) -> Email | None:
         email: Email | None = self._email_repo.get_sync_record(id=email_id)
         return email

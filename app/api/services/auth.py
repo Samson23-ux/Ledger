@@ -135,7 +135,9 @@ class AuthService:
             )
             raise ServerError() from exc
 
-    async def _send_email(self, email_id: UUID, recipient_email: str, user_id: UUID):
+    async def _send_email(
+        self, email_subject: str, email_id: UUID, recipient_email: str, user_id: UUID
+    ):
         otp: str = str(secrets.randbelow(900000) + 100000)
 
         otp_payload: OtpInDB = OtpInDB(
@@ -149,6 +151,7 @@ class AuthService:
         send_email.apply_async(
             priority=3,
             kwargs={
+                "email_subject": email_subject,
                 "email_message": verification_message(otp),
                 "email_id": str(email_id),
                 "recipient_email": recipient_email,
@@ -190,8 +193,13 @@ class AuthService:
                     )
                     await self._email_service.create_email(email_db)
 
+                    await self._uow.commit()
+
                     await self._send_email(
-                        email_id, existing_user.email, existing_user.id
+                        "Email Verification Code",
+                        email_id,
+                        existing_user.email,
+                        existing_user.id,
                     )
                 else:
                     sentry_logger.error(
@@ -212,9 +220,11 @@ class AuthService:
                 email_db: EmailInDB = EmailInDB(id=email_id, processed_email=user_email)
                 await self._email_service.create_email(email_db)
 
-                await self._send_email(email_id, user_email, user.id)
+                await self._uow.commit()
 
-            await self._uow.commit()
+                await self._send_email(
+                    "Email Verification Code", email_id, user_email, user.id
+                )
 
             sentry_logger.info(
                 "Email and password sign up completed for user {email}",
@@ -238,24 +248,24 @@ class AuthService:
         try:
             user_email = None
             await self._uow_user_wallet(uow)
-            
+
             user_info: dict = payload.get("userinfo")
-            
+
             google_id: str = user_info.get("sub")
             user_email: str = user_info.get("email")
             first_name: str = user_info.get("given_name")
             last_name: str = user_info.get("family_name")
-            
+
             if not first_name or last_name and user_info.get("name"):
                 parts = user_info["name"].split(" ", 1)
                 first_name = parts[0]
                 last_name = parts[1] if len(parts) > 1 else ""
-            
+
             existing_user: User | None = await self._user_service._get_user_by_email(
                 google_email=user_email,
                 is_verified=True,
             )
-            
+
             if existing_user:
                 existing_user.is_active = True
                 await self._user_service.update_user(existing_user)
@@ -272,18 +282,18 @@ class AuthService:
                 )
                 await self._user_service.create_user(user, user_email)
                 await self._wallet_service._create_wallet(user.id)
-            
+
             access_token, refresh_token = await self._get_tokens(
                 user_email, "google", security
             )
-            
+
             await self._uow.commit()
-            
+
             sentry_logger.info(
                 "Google sign in completed for user {email}",
                 email=user_email,
             )
-            
+
             return access_token, refresh_token
         except Exception as exc:
             await self._uow.rollback()
@@ -293,7 +303,7 @@ class AuthService:
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
                 "Error occured while sigining in with google account",
-                extra={"email": email}
+                extra={"email": email},
             )
             raise ServerError() from exc
 
@@ -381,9 +391,10 @@ class AuthService:
             )
             await self._email_service.create_email(email_db)
 
-            await self._send_email(email_id, user_email, existing_user.id)
-
             await self._uow.commit()
+            await self._send_email(
+                "Email Verification Code", email_id, user_email, existing_user.id
+            )
 
             sentry_logger.info(
                 "OTP code resent to user {email}",

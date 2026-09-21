@@ -59,11 +59,11 @@ class Security:
         return self.arg2_hasher.verify(password, hash_password)
 
     async def verify_webhook_signature(
-        self, received_signature: str, payload: dict
+        self, received_signature: str, raw_body: bytes
     ) -> bool:
         derived_signature: str = hmac.new(
             self.SETTINGS.PAYSTACK_API_KEY.encode(),
-            json.dumps(payload).encode(),
+            raw_body,
             hashlib.sha512,
         ).hexdigest()
         return hmac.compare_digest(derived_signature, received_signature)

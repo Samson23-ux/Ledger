@@ -19,8 +19,9 @@ async def receive_webhook_events(
     webhook_service: WebhookEventServiceDep,
 ):
     payload: dict = await request.json()
+    raw_body: bytes = await request.body()
     webhook_signature = request.headers.get("x-paystack-signature")
 
     await webhook_service.process_webhook_event(
-        security, webhook_signature, payload, uow
+        security, webhook_signature, raw_body, payload, uow
     )

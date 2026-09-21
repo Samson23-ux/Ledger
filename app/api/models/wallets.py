@@ -8,7 +8,6 @@ from sqlalchemy import (
     UUID,
     DateTime,
     Enum,
-    Index,
     ForeignKey,
     PrimaryKeyConstraint,
     Numeric
@@ -44,5 +43,4 @@ class Wallet(Base):
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name="wallets_pk"),
-        Index("idx_wallets_user_id", user_id, id, unique=True),
     )

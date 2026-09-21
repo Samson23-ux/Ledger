@@ -1,3 +1,4 @@
+import enum
 import uuid
 from decimal import Decimal
 from datetime import datetime, timezone
@@ -6,6 +7,7 @@ from sqlalchemy import (
     text,
     UUID,
     DateTime,
+    Enum,
     Index,
     ForeignKey,
     PrimaryKeyConstraint,
@@ -14,6 +16,7 @@ from sqlalchemy import (
 
 
 from app.api.models.base import Base
+from app.api.models.enum import WalletCreditType
 
 
 class WalletCredit(Base):
@@ -35,7 +38,9 @@ class WalletCredit(Base):
             ondelete="CASCADE",
             name="wallet_credits_payment_transaction_id_fk",
         ),
-        unique=True,
+    )
+    type: Mapped[enum.Enum] = mapped_column(
+        Enum(WalletCreditType, values_callable=lambda e: [m.value for m in e])
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(precision=10, scale=2))
     created_at: Mapped[datetime] = mapped_column(
@@ -44,11 +49,6 @@ class WalletCredit(Base):
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name="wallet_credits_pk"),
-        Index("idx_wallet_credits_wallet_id", wallet_id, id),
-        Index(
-            "idx_wallet_credits_payment_transaction_id",
-            payment_transaction_id,
-            unique=True,
-        ),
+        Index("idx_wallet_credits_wallet_id", wallet_id),
         Index("idx_wallet_credits_created_at", created_at),
     )

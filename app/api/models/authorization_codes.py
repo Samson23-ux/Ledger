@@ -8,7 +8,6 @@ from sqlalchemy import (
     UUID,
     DateTime,
     Enum,
-    Index,
     ForeignKey,
     PrimaryKeyConstraint,
     Text,
@@ -47,7 +46,4 @@ class AuthorizationCode(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
-    __table_args__ = (
-        PrimaryKeyConstraint(id, name="auth_codes_pk"),
-        Index("idx_auth_codes_wallet_id", wallet_id, code, unique=True)
-    )
+    __table_args__ = (PrimaryKeyConstraint(id, name="auth_codes_pk"),)

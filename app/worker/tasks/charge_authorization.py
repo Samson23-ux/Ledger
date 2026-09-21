@@ -19,6 +19,7 @@ SETTINGS = get_settings()
 @celery_app.task(bind=True, base=BaseTaskWithFailure)
 def charge_authorization(
     self,
+    out_box_id: str,
     email: str,
     amount: str,
     currency: str,
@@ -44,15 +45,14 @@ def charge_authorization(
 
         if resource and not idempotency_key:
             task_transaction.charge_authorization(
-                email, amount, currency, authorization_code, transaction_id
+                email, amount, currency, authorization_code, transaction_id, out_box_id
             )
+            session.commit()
 
             redis_repo.release_lock_sync(f"charge:{transaction_id}", resource_token)
             redis_repo.mark_idempotency_key(
                 f"charge:{message_id}", "1", SETTINGS.IDEMPOTENCY_KEY_TTL
             )
-
-            session.commit()
 
         if not resource:
             sentry_logger.info(

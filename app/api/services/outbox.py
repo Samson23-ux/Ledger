@@ -1,3 +1,8 @@
+from uuid import UUID
+from datetime import datetime, timezone
+
+
+from app.api.models.enum import OutBoxEnum
 from app.api.models.outbox import OutBox
 from app.api.schemas.outbox import OutBoxCreate
 from app.api.repo.outbox import OutBoxRepository
@@ -15,3 +20,17 @@ class OutBoxService:
 
     def _update_outbox_records(self, records: list[dict]):
         self._out_box_repo._update_outbox_records(records)
+
+    def mark_processed_sync(self, out_box_id: UUID):
+        """Marks a single outbox row as completed - called by the original
+        task (not the outbox poller) once it has actually done the work, so
+        a later poll of pending rows skips it instead of redoing it."""
+        self._out_box_repo._update_outbox_records(
+            [
+                {
+                    "id": out_box_id,
+                    "status": OutBoxEnum.COMPLETED,
+                    "processed_at": datetime.now(timezone.utc),
+                }
+            ]
+        )

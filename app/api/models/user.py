@@ -1,4 +1,3 @@
-import enum
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy.orm import Mapped, mapped_column
@@ -9,7 +8,6 @@ from sqlalchemy import (
     UUID,
     DateTime,
     PrimaryKeyConstraint,
-    Index,
     Enum,
 )
 
@@ -40,6 +38,4 @@ class User(Base):
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name="users_pk"),
-        Index("idx_users_email", email),
-        Index("idx_users_google_email", google_email),
     )

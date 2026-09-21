@@ -7,6 +7,8 @@ from app.api.models.wallets import Wallet
 from app.api.models.webhook_events import WebhookEvent
 from app.api.models.wallet_credits import WalletCredit
 from app.api.models.transactions import PaymentTransaction
+from app.api.models.refund_state_events import RefundStateEvent
+from app.api.models.authorization_codes import AuthorizationCode
 from app.api.models.transaction_state_events import TransactionStateEvent
 
 __all__ = [
@@ -18,6 +20,8 @@ __all__ = [
     "Wallet",
     "WalletCredit",
     "WebhookEvent",
+    "RefundStateEvent",
+    "AuthorizationCode",
     "PaymentTransaction",
-    "TransactionStateEvent"
+    "TransactionStateEvent",
 ]

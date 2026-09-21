@@ -58,3 +58,8 @@ class UserType(str, Enum):
 
 class CurrencyEnum(str, Enum):
     NGN = "NGN"
+
+
+class WalletCreditType(str, Enum):
+    CREDIT = "credit"
+    DEBIT = "debit"

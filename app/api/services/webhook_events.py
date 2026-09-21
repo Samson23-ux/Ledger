@@ -27,9 +27,9 @@ class WebhookEventService:
         out_box_repo = self._uow.repo(OutBoxRepository)
         self._out_box_service = OutBoxService(out_box_repo=out_box_repo)
 
-    async def _get_outbox_payload(self, payload: dict) -> OutBoxCreate:
+    async def _get_outbox_payload(self, out_box_id, payload: dict) -> OutBoxCreate:
         return OutBoxCreate(
-            id=uuid7(),
+            id=out_box_id,
             event_type="webhook",
             payload=payload,
         )
@@ -44,7 +44,7 @@ class WebhookEventService:
         if event == "charge.success":
             webhook_create = WebhookEventCreate(
                 id=uuid7(),
-                paystack_data_id=payload_data["id"],
+                paystack_data_id=int(payload_data["id"]),
                 paystack_reference=payload_data["reference"],
                 event_type=event,
                 payload=payload,
@@ -73,7 +73,7 @@ class WebhookEventService:
         elif event == "bank.transfer.rejected":
             webhook_create = WebhookEventCreate(
                 id=uuid7(),
-                paystack_data_id=payload_data["customer"]["id"],
+                paystack_data_id=int(payload_data["customer"]["id"]),
                 event_type=event,
                 payload=payload,
                 signature_verified=True,
@@ -100,7 +100,7 @@ class WebhookEventService:
             }
 
             if event == "refund.needs-attention":
-                webhook_create.paystack_data_id = payload_data["id"]
+                webhook_create.paystack_data_id = int(payload_data["id"])
 
         return webhook_create, task_payload
 
@@ -108,6 +108,7 @@ class WebhookEventService:
         self,
         security: Security,
         signature: str,
+        raw_body: bytes,
         payload: dict,
         uow: UnitOfWorkRepository,
     ):
@@ -115,7 +116,7 @@ class WebhookEventService:
             await self._uow_webhook(uow)
 
             is_signature_valid = await security.verify_webhook_signature(
-                signature, payload
+                signature, raw_body
             )
 
             if is_signature_valid:
@@ -124,32 +125,50 @@ class WebhookEventService:
                     event, payload
                 )
 
-                outbox_create = await self._get_outbox_payload(task_payload)
+                out_box_id = uuid7()
+                outbox_create = await self._get_outbox_payload(
+                    out_box_id, task_payload
+                )
 
                 webhook_event = await self._webhook_repo.create_webhook_event(
                     webhook_create
                 )
 
-                if (
+                should_dispatch = (
                     webhook_event.id == webhook_create.id
                     and not webhook_event.processed
-                ):
-                    """The created  id for the received event matches
-                    the inserted row and should be passed on to the background task.
+                )
+                """The created  id for the received event matches
+                the inserted row and should be passed on to the background task.
 
-                    A duplicate is detected when the created id does not match the
-                    returned row's id"""
+                A duplicate is detected when the created id does not match the
+                returned row's id"""
 
+                if should_dispatch:
                     await self._out_box_service._create_out_box(outbox_create)
-                    process_webhook_events.apply_async(
-                        priority=8, kwargs={"payload": task_payload}
-                    )
 
+                await self._uow.commit()
+
+                if should_dispatch:
+                    # only dispatch once the outbox row is actually committed
+                    # - the worker reads it on its own DB connection and
+                    # won't see it otherwise, silently no-oping and leaving
+                    # the outbox row stuck "pending"
+                    process_webhook_events.apply_async(
+                        priority=8,
+                        kwargs={
+                            "out_box_id": str(out_box_id),
+                            "payload": task_payload,
+                        },
+                    )
             sentry_logger.info(
                 "Webhook event processed successfully",
                 extra={"event": payload["event"]},
             )
         except Exception as exc:
+            print(f"EXCEPTIOn ==========>>>>> {exc}")
+            await self._uow.rollback()
+
             sentry_sdk.capture_exception(exc)
             sentry_logger.error(
                 "Error occured while processing webhook event", extra={"exc": str(exc)}
