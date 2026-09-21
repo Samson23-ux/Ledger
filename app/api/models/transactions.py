@@ -48,6 +48,7 @@ class PaymentTransaction(Base):
         ),
     )
     paystack_reference: Mapped[str | None] = mapped_column(Text, unique=True, default=None)
+    authorization_url: Mapped[str | None] = mapped_column(Text, default=None)
     amount: Mapped[Decimal] = mapped_column(Numeric(precision=10, scale=2))
     currency: Mapped[enum.Enum] = mapped_column(
         Enum(CurrencyEnum, values_callable=lambda e: [m.value for m in e]),

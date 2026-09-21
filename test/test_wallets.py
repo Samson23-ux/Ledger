@@ -83,6 +83,7 @@ async def wallet_credit(
             id=uuid7(),
             wallet_id=wallet.id,
             payment_transaction_id=transaction.id,
+            type="credit",
             amount=Decimal("500.00"),
         )
         session.add(credit)

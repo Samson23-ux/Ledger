@@ -164,17 +164,6 @@ class WalletService:
         user_email: str = get_user_email(curr_user)
 
         try:
-            transaction = await self._transaction_service._get_transaction(
-                idempotency_key=idempotency_key
-            )
-
-            if transaction:
-                sentry_logger.info(
-                    "Existing payment transaction returned", extra={"user_id": user_id}
-                )
-                return TransactionResponse.model_validate(transaction)
-
-            initialize = True
             wallet: Wallet = await self._get_wallet(user_id)
 
             transaction_create, state_create = await self._get_transaction_payloads(
@@ -184,6 +173,41 @@ class WalletService:
                 fund_wallet.amount,
                 fund_wallet.channel,
             )
+
+            # Insert a bare "pending" row first, before doing any Paystack
+            # work. Postgres blocks a concurrent INSERT...ON CONFLICT on the
+            # same idempotency_key until this transaction resolves, so this
+            # single statement is what arbitrates concurrent duplicate
+            # requests - only the request whose row this is proceeds to
+            # actually call Paystack; everyone else waits here and then just
+            # reads back the finished result. If we end up rolling back
+            # (Paystack call fails, process crashes, ...) the insert unwinds
+            # with it, so a waiting duplicate falls through to a fresh
+            # insert of its own instead of being stuck behind a dead row.
+            transaction = await self._transaction_service._create_transaction(
+                transaction_create
+            )
+            is_owner = transaction.id == transaction_create.id
+
+            if not is_owner:
+                await self._uow.commit()
+                sentry_logger.info(
+                    "Duplicate wallet fund request resolved to existing "
+                    "transaction",
+                    extra={"user_id": user_id},
+                )
+                # the checkout url is only still usable while the owner's
+                # attempt is sitting at "pending" - once it moves past that
+                # (the callback route or a webhook already reached it), the
+                # url has been consumed and Paystack will show a "We could
+                # not start this transaction" page instead of the real result.
+                if transaction.status == "pending" and transaction.authorization_url:
+                    return transaction.authorization_url
+                return TransactionResponse.model_validate(transaction)
+
+            await self._state_service._create_transaction_state(state_create)
+
+            initialize = True
 
             if fund_wallet.channel == "card":
                 # check if the wallet has an authorization_code to prevent collection of card details
@@ -224,38 +248,34 @@ class WalletService:
                     channel=fund_wallet.channel,
                 )
 
-                transaction_create.paystack_reference = initialization["data"][
-                    "reference"
+                transaction.paystack_reference = initialization["data"]["reference"]
+                transaction.authorization_url = initialization["data"][
+                    "authorization_url"
                 ]
 
                 await self._redis_repo.set_key(
-                    _fund_callback_key(
-                        transaction_create.paystack_reference, user_id
-                    ),
+                    _fund_callback_key(transaction.paystack_reference, user_id),
                     str(user_id),
                     FUND_CALLBACK_TTL,
                 )
+
+                await self._transaction_service._update_transaction(transaction)
             else:
-                transaction_create.authorization_code = auth_code.code
+                transaction.authorization_code = auth_code.code
+                await self._transaction_service._update_transaction(transaction)
 
-            await self._transaction_service._create_transaction(transaction_create)
-            await self._state_service._create_transaction_state(state_create)
-
-            if not initialize:
                 out_box_id: UUID = uuid7()
                 out_box_create = await self._get_outbox_payload(
                     out_box_id,
                     user_email,
                     fund_wallet.amount,
                     auth_code.code,
-                    transaction_create.id,
+                    transaction.id,
                 )
 
                 await self._out_box_service._create_out_box(out_box_create)
 
-                transaction_response = TransactionResponse(
-                    **transaction_create.model_dump()
-                )
+                transaction_response = TransactionResponse.model_validate(transaction)
 
             await self._uow.commit()
 
@@ -272,7 +292,7 @@ class WalletService:
                         "amount": str(fund_wallet.amount),
                         "currency": "NGN",
                         "message_id": str(uuid7()),
-                        "transaction_id": str(transaction_create.id),
+                        "transaction_id": str(transaction.id),
                         "authorization_code": auth_code.code,
                     },
                 )
@@ -280,11 +300,7 @@ class WalletService:
             sentry_logger.info("Wallet fund initiated", extra={"user_id": user_id})
 
             await circuit.record_success()
-            return (
-                initialization["data"]["authorization_url"]
-                if initialize
-                else transaction_response
-            )
+            return transaction.authorization_url if initialize else transaction_response
         except PaystackException.ApiKeyError as exc:
             await self._uow.rollback()
 

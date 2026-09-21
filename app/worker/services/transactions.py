@@ -168,8 +168,6 @@ class TaskRefund:
                     existing_refund_id, currency, account_number, bank_id
                 )
 
-                print(f"RES ===>>> {res}")
-
                 refund.status = "initiated"
                 refund.paystack_refund_id = res["data"]["id"]
                 refund.updated_at = datetime.now(timezone.utc)
