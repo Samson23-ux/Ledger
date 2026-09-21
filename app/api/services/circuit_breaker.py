@@ -223,9 +223,10 @@ class CircuitBreaker:
 
         self._redis.create_hset_sync(breaker_key, circuit)
 
-    async def record_failure(self) -> dict | None:
-        """Registers a failed call against the breaker. Returns the 503
-        response when this failure trips the circuit open, else None.
+    async def record_failure(self) -> dict:
+        """Registers a failed call against the breaker. Always returns a
+        dict shaped like `check`'s - is_healthy False (plus retry_after)
+        once this failure trips the circuit open, else is_healthy True.
         """
         breaker_key = self._breaker_key()
         circuit = await self._redis.get_hset(breaker_key)
@@ -265,9 +266,9 @@ class CircuitBreaker:
             }
 
         await self._redis.create_hset(breaker_key, {"failures": circuit["failures"]})
-        return None
+        return {"is_healthy": True}
 
-    def record_failure_sync(self) -> dict | None:
+    def record_failure_sync(self) -> dict:
         """Sync mirror of `record_failure`, for use from Celery tasks."""
         breaker_key = self._breaker_key()
         circuit = self._redis.get_hset_sync(breaker_key)
@@ -307,4 +308,4 @@ class CircuitBreaker:
             }
 
         self._redis.create_hset_sync(breaker_key, {"failures": circuit["failures"]})
-        return None
+        return {"is_healthy": True}
