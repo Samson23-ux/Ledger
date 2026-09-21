@@ -36,7 +36,7 @@ def get_otp_service() -> OtpService:
 
 
 def raise_for_status_5xx(response):
-    return response.raise_for_status
+    return response.raise_for_status()
 
 
 def http_client() -> Client:

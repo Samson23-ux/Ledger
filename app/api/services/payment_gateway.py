@@ -178,7 +178,6 @@ class Refund(PaymentGateway):
                     "content-type": "application/json",
                 },
             )
-            res.raise_for_status()
             return res.json()
         except HTTPStatusError as exc:
             error_body = exc.response.json()

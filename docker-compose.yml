@@ -68,28 +68,6 @@ services:
       start_period: 30s
       start_interval: 5s
 
-  ledger_pgadmin:
-    image: dpage/pgadmin4
-    container_name: ledger_pgadmin
-    restart: always
-    volumes:
-      - ledger_pgadmin:/var/lib/pgadmin
-    environment:
-      - PGADMIN_DEFAULT_EMAIL=admin@example.com
-      - PGADMIN_DEFAULT_PASSWORD=postgres
-    ports:
-      - 5050:80
-    healthcheck:
-      test: ["CMD-SHELL", "wget -O - -q http://localhost:80/misc/ping"]
-      retries: 5
-      timeout: 10s
-      interval: 30s
-      start_period: 30s
-      start_interval: 5s
-    depends_on:
-      ledger_postgres:
-        condition: service_healthy
-
   ledger_ngrok:
     image: ngrok/ngrok:latest
     container_name: ledger_ngrok

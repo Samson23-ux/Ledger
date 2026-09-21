@@ -107,18 +107,32 @@ class OutBoxTask:
         )
 
         if resource:
-            self._task_refund.retry_refund(
-                bank_id,
-                refund_id,
-                existing_refund_id,
-                currency,
-                account_number,
-                out_box_id,
-            )
-
-            self._redis_repo.release_lock_sync(
-                f"refund:{refund_id}:retry", resource_token
-            )
+            try:
+                self._task_refund.retry_refund(
+                    bank_id,
+                    refund_id,
+                    existing_refund_id,
+                    currency,
+                    account_number,
+                    out_box_id,
+                )
+            except Exception as exc:
+                # a failed Paystack call here (network hiccup, transient
+                # 5xx/retryable 4xx, ...) shouldn't take down the rest of
+                # this poll cycle's outbox rows, and the session needs to be
+                # clean before the loop in process_outbox_task moves on to
+                # the next one. Leave this row pending - the next poll (or
+                # the original task's own retry) picks it back up.
+                self._session.rollback()
+                sentry_sdk.capture_exception(exc)
+                sentry_logger.error(
+                    "Error occured while retrying refund from outbox poller",
+                    extra={"task_id": self.task_id, "refund_id": refund_id},
+                )
+            finally:
+                self._redis_repo.release_lock_sync(
+                    f"refund:{refund_id}:retry", resource_token
+                )
         else:
             sentry_logger.info(
                 "Lock not obtained for outbox retry refund task - leaving the "
