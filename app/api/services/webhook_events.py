@@ -1,5 +1,6 @@
 import sentry_sdk
 from uuid import uuid7
+from datetime import datetime, timezone
 import sentry_sdk.logger as sentry_logger
 
 
@@ -7,6 +8,7 @@ from app.core.security import Security
 from app.core.exceptions import ServerError
 from app.api.schemas.outbox import OutBoxCreate
 from app.api.repo.outbox import OutBoxRepository
+from app.api.models.webhook_events import WebhookEvent
 from app.api.services.outbox import OutBoxService
 from app.api.repo.uow import UnitOfWorkRepository
 from app.api.schemas.webhook_events import WebhookEventCreate
@@ -17,6 +19,14 @@ from app.worker.tasks.webhook_events import process_webhook_events
 class WebhookEventService:
     def __init__(self, webhook_repo: WebhookEventRepository):
         self._webhook_repo = webhook_repo
+
+    def _get_webhook_event_sync(self, **filters) -> WebhookEvent | None:
+        return self._webhook_repo.get_sync_record(**filters)
+
+    def mark_processed_sync(self, webhook_event: WebhookEvent):
+        webhook_event.processed = True
+        webhook_event.processed_at = datetime.now(timezone.utc)
+        self._webhook_repo.sync_add(model=webhook_event)
 
     async def _setup_uow(self, uow: UnitOfWorkRepository):
         self._uow = uow
@@ -64,6 +74,7 @@ class WebhookEventService:
                     "authorization_code"
                 ],
                 "message_id": str(uuid7()),
+                "webhook_event_id": str(webhook_create.id),
             }
 
             if payload_data["channel"] == "bank_transfer":
@@ -83,6 +94,7 @@ class WebhookEventService:
                 "event": event,
                 "transaction_id": payload_data["bank_transfer"]["transaction_id"],
                 "message_id": str(uuid7()),
+                "webhook_event_id": str(webhook_create.id),
             }
         elif event.startswith("refund"):
             webhook_create = WebhookEventCreate(
@@ -97,6 +109,7 @@ class WebhookEventService:
                 "event": event,
                 "reference": payload_data["transaction_reference"],
                 "message_id": str(uuid7()),
+                "webhook_event_id": str(webhook_create.id),
             }
 
             if event == "refund.needs-attention":
@@ -166,7 +179,6 @@ class WebhookEventService:
                 extra={"event": payload["event"]},
             )
         except Exception as exc:
-            print(f"EXCEPTIOn ==========>>>>> {exc}")
             await self._uow.rollback()
 
             sentry_sdk.capture_exception(exc)

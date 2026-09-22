@@ -31,6 +31,8 @@ from app.api.services.transaction_state import TransactionStateService
 from app.api.repo.wallet_credits import WalletCreditRepository
 from app.api.services.wallet_credits import WalletCreditService
 from app.api.schemas.wallet_credits import WalletCreditCreate
+from app.api.repo.webhook_events import WebhookEventRepository
+from app.api.services.webhook_events import WebhookEventService
 from app.email_texts import (
     refund_failed_message,
     refund_processed_message,
@@ -77,6 +79,9 @@ class TaskWebhook:
         )
         self._wallet_credit_service = WalletCreditService(
             credit_repo=WalletCreditRepository(sync_session=self._session)
+        )
+        self._webhook_event_service = WebhookEventService(
+            webhook_repo=WebhookEventRepository(sync_session=self._session)
         )
 
     def _process_success_event(
@@ -446,4 +451,13 @@ class TaskWebhook:
             res = self.refund_needs_attention_event(payload)
 
         self._out_box_service.mark_processed_sync(out_box_id)
+
+        webhook_event_id = payload.get("webhook_event_id")
+        if webhook_event_id:
+            webhook_event = self._webhook_event_service._get_webhook_event_sync(
+                id=webhook_event_id
+            )
+            if webhook_event:
+                self._webhook_event_service.mark_processed_sync(webhook_event)
+
         return res

@@ -9,7 +9,6 @@ from app.core.config import get_settings
 from app.worker.celery_app import celery_app
 from app.worker.tasks.email import send_email
 from app.core.exceptions import MaxRetriesError
-from app.worker.services.webhooks import TaskWebhook
 from app.worker.tasks.base import BaseTaskWithFailure
 from app.worker.core import get_redis_repo, get_db_session
 
@@ -19,6 +18,8 @@ SETTINGS = get_settings()
 @celery_app.task(bind=True, base=BaseTaskWithFailure)
 def process_webhook_events(self, out_box_id: str, payload: dict):
     try:
+        from app.worker.services.webhooks import TaskWebhook
+
         task_id = self.request.id
 
         redis_repo = get_redis_repo()
