@@ -1,7 +1,6 @@
 from uuid import UUID
 
 
-from app.api.models.user import User
 from app.api.models.wallet_credits import WalletCredit
 from app.api.repo.wallet_credits import WalletCreditRepository
 from app.api.schemas.wallet_credits import WalletCreditCreate

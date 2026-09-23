@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 
 
 from app.api.models.enum import OutBoxEnum
-from app.api.models.outbox import OutBox
 from app.api.schemas.outbox import OutBoxCreate
 from app.api.repo.outbox import OutBoxRepository
 

@@ -1,14 +1,13 @@
-import secrets
 import psycopg2
 from uuid import UUID
 from celery.exceptions import Reject
+from datetime import datetime, timezone
 from resend.exceptions import ResendError
-from datetime import datetime, timezone, timedelta
+
 
 from app.worker import celery_app
 from app.api.models.email import Email
 from app.core.config import get_settings
-from app.api.schemas.auth import OtpInDB
 from app.worker import BaseTaskWithFailure
 from app.core.exceptions import MaxRetriesError
 
