@@ -43,8 +43,8 @@ Requires Docker and Docker Compose.
 
 The project is deployed and available at:
 
-- API base URL: `https://ledger-egpz.onrender.com`
-- Swagger docs: `https://ledger-egpz.onrender.com/docs`
+- API base URL: [https://ledger-egpz.onrender.com](https://ledger-egpz.onrender.com)
+- Swagger docs: [https://ledger-egpz.onrender.com/docs](https://ledger-egpz.onrender.com/docs)
 
 > Note: the wallet funding endpoint should be tested with Postman rather than the Swagger UI. The Paystack checkout flow redirects the browser, so Swagger cannot complete that redirect-based flow reliably. To complete the payment manually, copy the `Location` header from the API response in Postman and paste it into a browser tab; this opens the Paystack checkout page where the payment can be completed.
 
