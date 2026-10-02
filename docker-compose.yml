@@ -116,30 +116,6 @@ services:
       ledger_declare_queues:
         condition: service_completed_successfully
 
-  ledger_wroker_beat:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    restart: always
-    container_name: ledger_wroker_beat
-    volumes:
-      - .:/Ledger
-      - /Ledger/.venv
-    env_file: .env
-    command:
-      ["celery", "-A", "app.worker.celery_app", "worker", "-Q", "ledger.beat", "-P", "gevent", "-l", "info"]
-    depends_on:
-      ledger_postgres:
-        condition: service_healthy
-      ledger_broker:
-        condition: service_healthy
-      ledger_redis:
-        condition: service_healthy
-      ledger_migrate:
-        condition: service_completed_successfully
-      ledger_declare_queues:
-        condition: service_completed_successfully
-
   ledger_beat:
     build:
       context: .
