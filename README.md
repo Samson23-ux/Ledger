@@ -39,6 +39,17 @@ Requires Docker and Docker Compose.
 3. The API is available at `http://localhost:8000`, docs at `http://localhost:8000/docs`.
 4. `ledger_ngrok` exposes a public URL for Paystack webhooks to reach your local instance during development — configure `NGROK_DOMAIN`/`NGROK_AUTHTOKEN` and point your Paystack webhook URL at it.
 
+## Deployed / Live API
+
+The project is deployed and available at:
+
+- API base URL: `https://ledger-egpz.onrender.com`
+- Swagger docs: `https://ledger-egpz.onrender.com/docs`
+
+> Note: the wallet funding endpoint should be tested with Postman rather than the Swagger UI. The Paystack checkout flow redirects the browser, so Swagger cannot complete that redirect-based flow reliably. To complete the payment manually, copy the `Location` header from the API response in Postman and paste it into a browser tab; this opens the Paystack checkout page where the payment can be completed.
+
+Use the live deployment for testing against the hosted environment, but keep local Docker setup for development and full integration testing.
+
 ### Environment variables
 
 | Variable | Purpose |
